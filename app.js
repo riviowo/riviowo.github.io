@@ -1,20 +1,13 @@
 const el = (id) => document.getElementById(id);
 
 const APP_NAME = "EryVanta";
-const POLYGON_CHAIN_ID = "0x89";
+const POLYGON_CHAIN_ID = "0x89"; // 137
 
-// Your receiving address
+// Receiver
 const MERCHANT_ADDRESS = "0x03a6BC48ED8733Cc700AE49657931243f078a994";
 
-// Chainlink MATIC/USD feed on Polygon (used here as USD per native token context)
-const CHAINLINK_POL_USD_FEED = "0xAB594600376Ec9fD91F8e885dADF0CE036862dE0";
-
-// $1.00
-const PRICE_USD_CENTS = 100;
-
-// Function selectors
-const SEL_DECIMALS = "0x313ce567";
-const SEL_LATEST_ROUND_DATA = "0xfeaf968c";
+// TEST MODE: fixed 1 POL payment
+const FIXED_PAY_WEI = 1n * (10n ** 18n); // 1 POL = 1e18 wei
 
 // ChainList-style RPC candidates (HTTPS)
 const POLYGON_RPC_CANDIDATES = [
@@ -23,10 +16,11 @@ const POLYGON_RPC_CANDIDATES = [
   "https://1rpc.io/matic",
   "https://polygon.drpc.org",
   "https://polygon-rpc.com",
+  "https://polygon-public.nodies.app",
 ];
 
 const btnConnect = el("btnConnect");
-const btnFixRpc = el("btnFixRpc");
+const btnFixRpc = el("btnFixRpc"); // optional (but recommended)
 const btnLogout = el("btnLogout");
 const btnQuote = el("btnQuote");
 const btnPay = el("btnPay");
@@ -45,28 +39,13 @@ function setStatus(text, onOff) {
 }
 
 function setSessionMsg(msg = "") {
-  el("sessionMsg").textContent = msg;
+  const node = el("sessionMsg");
+  if (node) node.textContent = msg;
 }
 
 function toHex(bigint) {
+  if (bigint < 0n) throw new Error("Negative BigInt not supported");
   return "0x" + bigint.toString(16);
-}
-
-function readWord(hex, wordIndex) {
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-  const start = wordIndex * 64;
-  return "0x" + clean.slice(start, start + 64);
-}
-
-function uintFromWord(wordHex) {
-  return BigInt(wordHex);
-}
-
-function intFromWord(wordHex) {
-  const x = BigInt(wordHex);
-  const two256 = 1n << 256n;
-  const two255 = 1n << 255n;
-  return x >= two255 ? x - two256 : x;
 }
 
 function formatEthFromWeiHex(weiHex) {
@@ -77,31 +56,31 @@ function formatEthFromWeiHex(weiHex) {
   return `${whole}.${frac}`;
 }
 
-function formatPolFromWei(wei) {
-  const base = 10n ** 18n;
-  const whole = wei / base;
-  const frac = (wei % base).toString().padStart(18, "0").slice(0, 6);
-  return `${whole}.${frac} POL`;
-}
-
 function nowIso() {
   return new Date().toISOString();
 }
 
+/* -----------------------
+   Provider (MetaMask)
+------------------------ */
 async function requireProvider() {
   if (!window.ethereum) throw new Error("MetaMask is not installed.");
   return window.ethereum;
 }
 
+async function getChainIdWallet() {
+  const provider = await requireProvider();
+  return provider.request({ method: "eth_chainId" });
+}
+
 /* -----------------------
    RPC auto-failover layer
 ------------------------ */
-
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function rpcFetch(url, method, params = [], timeoutMs = 6000) {
+async function rpcFetch(url, method, params = [], timeoutMs = 6500) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -121,12 +100,10 @@ async function rpcFetch(url, method, params = [], timeoutMs = 6000) {
 }
 
 async function isHealthyPolygonRpc(url) {
-  const start = performance.now();
   const chainId = await rpcFetch(url, "eth_chainId", []);
   if (String(chainId).toLowerCase() !== POLYGON_CHAIN_ID) throw new Error("Wrong chainId");
   await rpcFetch(url, "eth_blockNumber", []);
-  const ms = performance.now() - start;
-  return ms;
+  return true;
 }
 
 function getCachedRpc() {
@@ -152,27 +129,24 @@ async function pickHealthyPolygonRpc() {
     return activeRpc;
   }
 
-  let best = null;
+  // Pick first healthy (fast enough)
   for (const url of POLYGON_RPC_CANDIDATES) {
     try {
-      const ms = await isHealthyPolygonRpc(url);
-      if (!best || ms < best.ms) best = { url, ms };
+      await isHealthyPolygonRpc(url);
+      activeRpc = url;
+      cacheRpc(activeRpc);
+      return activeRpc;
     } catch {
-      // ignore and continue
+      // continue
     }
   }
 
-  if (!best) throw new Error("No healthy Polygon RPC found. Try again later.");
-  activeRpc = best.url;
-  cacheRpc(activeRpc);
-  return activeRpc;
+  throw new Error("No healthy Polygon RPC found. Try again later.");
 }
 
 async function rpcRequestPolygon(method, params = []) {
-  // Ensure we have an RPC
   if (!activeRpc) await pickHealthyPolygonRpc();
 
-  // Try active first, then fall back to others
   const tried = new Set();
   const candidates = [activeRpc, ...POLYGON_RPC_CANDIDATES.filter((u) => u !== activeRpc)];
 
@@ -180,7 +154,7 @@ async function rpcRequestPolygon(method, params = []) {
     if (tried.has(url)) continue;
     tried.add(url);
     try {
-      const out = await rpcFetch(url, method, params, 7000);
+      const out = await rpcFetch(url, method, params, 7500);
       if (url !== activeRpc) {
         activeRpc = url;
         cacheRpc(activeRpc);
@@ -190,24 +164,18 @@ async function rpcRequestPolygon(method, params = []) {
       // try next
     }
   }
+
   throw new Error("Polygon RPC failed on all endpoints.");
 }
 
 /* -----------------------
-   Wallet + network helpers
+   Network switching (Polygon)
 ------------------------ */
-
-async function getChainIdWallet() {
-  const provider = await requireProvider();
-  return provider.request({ method: "eth_chainId" });
-}
-
 async function switchToPolygon() {
   const provider = await requireProvider();
   const current = await getChainIdWallet().catch(() => null);
   if (current && String(current).toLowerCase() === POLYGON_CHAIN_ID) return;
 
-  // pick best RPC and propose it first
   const bestRpc = await pickHealthyPolygonRpc();
 
   try {
@@ -216,7 +184,6 @@ async function switchToPolygon() {
       params: [{ chainId: POLYGON_CHAIN_ID }],
     });
   } catch (err) {
-    // If Polygon is not added, add it with multiple RPCs (ChainList style)
     if (err && err.code === 4902) {
       await provider.request({
         method: "wallet_addEthereumChain",
@@ -234,16 +201,9 @@ async function switchToPolygon() {
   }
 }
 
-function setLoggedOutUI() {
-  setStatus("Disconnected", "off");
-  setSessionMsg("");
-  el("addr").textContent = "-";
-  el("chain").textContent = "-";
-  el("bal").textContent = "-";
-  btnLogout.disabled = true;
-  btnPay.disabled = true;
-}
-
+/* -----------------------
+   Session + membership local storage
+------------------------ */
 function getSession() {
   try { return JSON.parse(localStorage.getItem("eryvanta_session") || "null"); }
   catch { return null; }
@@ -259,12 +219,24 @@ function setMembership(m) { localStorage.setItem("eryvanta_membership", JSON.str
 
 function isSignedIn() {
   const s = getSession();
-  return Boolean(s && s.account && s.sig && s.message && account && s.account.toLowerCase() === account.toLowerCase());
+  return Boolean(
+    s && s.account && s.sig && s.message &&
+    account && s.account.toLowerCase() === account.toLowerCase()
+  );
 }
 
 /* -----------------------
-   UI refresh
+   UI helpers
 ------------------------ */
+function setLoggedOutUI() {
+  setStatus("Disconnected", "off");
+  setSessionMsg("");
+  el("addr").textContent = "-";
+  el("chain").textContent = "-";
+  el("bal").textContent = "-";
+  btnLogout.disabled = true;
+  btnPay.disabled = true;
+}
 
 async function refreshWalletUI() {
   if (!account) return;
@@ -272,26 +244,26 @@ async function refreshWalletUI() {
   el("addr").textContent = account;
   btnLogout.disabled = false;
 
-  // Prefer wallet for chain id, fallback to RPC
+  // chain id (prefer wallet)
   try {
-    const chainId = await getChainIdWallet();
-    el("chain").textContent = chainId;
+    el("chain").textContent = await getChainIdWallet();
   } catch {
     try {
-      const chainId = await rpcRequestPolygon("eth_chainId", []);
-      el("chain").textContent = chainId;
+      el("chain").textContent = await rpcRequestPolygon("eth_chainId", []);
     } catch {
       el("chain").textContent = "?";
     }
   }
 
-  // Prefer wallet for balance, fallback to RPC
+  // balance (prefer wallet; fallback to our RPC)
   try {
-    const balHex = await window.ethereum.request({ method: "eth_getBalance", params: [account, "latest"] });
+    const balHex = await window.ethereum.request({
+      method: "eth_getBalance",
+      params: [account, "latest"],
+    });
     el("bal").textContent = formatEthFromWeiHex(balHex);
-  } catch (e) {
-    // Wallet RPC likely failing; show hint + use our RPC for display
-    setSessionMsg("Your wallet RPC seems unstable. Use “Fix Polygon RPC” or change the Polygon RPC URL in MetaMask.");
+  } catch {
+    setSessionMsg("RPC متامسک مشکل دارد. Fix Polygon RPC را بزن یا RPC شبکه Polygon را در MetaMask تغییر بده.");
     try {
       const balHex = await rpcRequestPolygon("eth_getBalance", [account, "latest"]);
       el("bal").textContent = formatEthFromWeiHex(balHex);
@@ -301,47 +273,12 @@ async function refreshWalletUI() {
   }
 
   setStatus("Connected", "on");
-
   await refreshMembershipUI().catch(() => {});
 }
 
-async function getChainlinkPriceUsdPerPol() {
-  // decimals()
-  const decHex = await rpcRequestPolygon("eth_call", [{ to: CHAINLINK_POL_USD_FEED, data: SEL_DECIMALS }, "latest"]);
-  const decimals = Number(uintFromWord(readWord(decHex, 0)));
-
-  // latestRoundData()
-  const roundHex = await rpcRequestPolygon("eth_call", [{ to: CHAINLINK_POL_USD_FEED, data: SEL_LATEST_ROUND_DATA }, "latest"]);
-  const answer = intFromWord(readWord(roundHex, 1));
-  const updatedAt = Number(uintFromWord(readWord(roundHex, 3)));
-
-  if (answer <= 0n) throw new Error("Invalid price feed answer.");
-  if (!updatedAt) throw new Error("Price feed has no updatedAt.");
-  return { answer, decimals, updatedAt };
-}
-
-function computeWeiForUsdCents(usdCents, priceAnswer, priceDecimals) {
-  const dec = 10n ** BigInt(priceDecimals);
-  const numerator = BigInt(usdCents) * dec * (10n ** 18n);
-  const denom = 100n * BigInt(priceAnswer);
-  return (numerator + denom - 1n) / denom; // round up
-}
-
-function formatPrice(answer, decimals) {
-  const base = 10n ** BigInt(decimals);
-  const whole = answer / base;
-  const frac = (answer % base).toString().padStart(decimals, "0").slice(0, 6);
-  return `${whole}.${frac}`;
-}
-
-function fmtTimeAgo(unixSec) {
-  const diffMs = Date.now() - unixSec * 1000;
-  const minutes = Math.max(0, Math.floor(diffMs / 60000));
-  if (minutes < 2) return "just now";
-  if (minutes < 60) return `${minutes} minutes ago`;
-  return `${Math.floor(minutes / 60)} hours ago`;
-}
-
+/* -----------------------
+   Quote (TEST: fixed 1 POL)
+------------------------ */
 async function refreshQuote() {
   el("shopMsg").textContent = "";
   el("receiver").textContent = MERCHANT_ADDRESS;
@@ -349,16 +286,15 @@ async function refreshQuote() {
   try {
     await pickHealthyPolygonRpc();
 
-    const { answer, decimals, updatedAt } = await getChainlinkPriceUsdPerPol();
-    const ageMin = Math.floor((Date.now() / 1000 - updatedAt) / 60);
-    if (ageMin > 30) throw new Error("Price feed looks stale. Please try again.");
+    lastQuote = {
+      wei: FIXED_PAY_WEI.toString(),
+      mode: "fixed_pol",
+      updatedAt: Math.floor(Date.now() / 1000),
+    };
 
-    const wei = computeWeiForUsdCents(PRICE_USD_CENTS, answer, decimals);
-    lastQuote = { answer: answer.toString(), decimals, updatedAt, wei: wei.toString() };
-
-    el("price").textContent = `${formatPrice(answer, decimals)} USD`;
-    el("amountPol").textContent = formatPolFromWei(wei);
-    el("updatedAt").textContent = fmtTimeAgo(updatedAt);
+    el("price").textContent = "Fixed (1 POL)";
+    el("amountPol").textContent = "1.000000 POL";
+    el("updatedAt").textContent = "now";
 
     btnPay.disabled = !isSignedIn();
   } catch (e) {
@@ -370,6 +306,9 @@ async function refreshQuote() {
   }
 }
 
+/* -----------------------
+   Tx verify helpers
+------------------------ */
 async function waitForReceipt(txHash, timeoutMs = 120000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -429,9 +368,8 @@ async function refreshMembershipUI() {
 }
 
 /* -----------------------
-   Tabs + actions
+   Tabs
 ------------------------ */
-
 function setupTabs() {
   const tabs = Array.from(document.querySelectorAll(".tab"));
   const views = { home: el("view-home"), shop: el("view-shop"), account: el("view-account") };
@@ -442,10 +380,14 @@ function setupTabs() {
     if (name === "shop") refreshQuote();
     if (name === "account") refreshMembershipUI();
   }
+
   activateTab = activate;
   tabs.forEach((t) => t.addEventListener("click", () => activate(t.dataset.tab)));
 }
 
+/* -----------------------
+   Connect + Sign
+------------------------ */
 async function connectWallet() {
   await requireProvider();
   const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
@@ -456,11 +398,23 @@ async function connectWallet() {
 
 async function signIn() {
   const provider = await requireProvider();
-  const message = [`Sign in to ${APP_NAME}`, `Address: ${account}`, `Time: ${nowIso()}`].join("\n");
-  const sig = await provider.request({ method: "personal_sign", params: [message, account] });
+  const message = [
+    `Sign in to ${APP_NAME}`,
+    `Address: ${account}`,
+    `Time: ${nowIso()}`,
+  ].join("\n");
+
+  const sig = await provider.request({
+    method: "personal_sign",
+    params: [message, account],
+  });
+
   setSession({ account, sig, message });
 }
 
+/* -----------------------
+   Button handlers
+------------------------ */
 btnConnect.onclick = async () => {
   try {
     setSessionMsg("");
@@ -473,28 +427,30 @@ btnConnect.onclick = async () => {
   }
 };
 
-btnFixRpc.onclick = async () => {
-  try {
-    setSessionMsg("");
-    const provider = await requireProvider();
-    const bestRpc = await pickHealthyPolygonRpc();
+if (btnFixRpc) {
+  btnFixRpc.onclick = async () => {
+    try {
+      setSessionMsg("");
+      const provider = await requireProvider();
+      const bestRpc = await pickHealthyPolygonRpc();
 
-    await provider.request({
-      method: "wallet_addEthereumChain",
-      params: [{
-        chainId: POLYGON_CHAIN_ID,
-        chainName: "Polygon Mainnet",
-        rpcUrls: [bestRpc, ...POLYGON_RPC_CANDIDATES.filter((x) => x !== bestRpc)],
-        nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
-        blockExplorerUrls: ["https://polygonscan.com/"],
-      }],
-    });
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: POLYGON_CHAIN_ID,
+          chainName: "Polygon Mainnet",
+          rpcUrls: [bestRpc, ...POLYGON_RPC_CANDIDATES.filter((x) => x !== bestRpc)],
+          nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
+          blockExplorerUrls: ["https://polygonscan.com/"],
+        }],
+      });
 
-    setSessionMsg("Requested Polygon network update in MetaMask. If prompted, approve it, then retry.");
-  } catch (e) {
-    setSessionMsg(e?.message || String(e));
-  }
-};
+      setSessionMsg("در MetaMask درخواست آپدیت Polygon ارسال شد. Approve کن و دوباره تست کن.");
+    } catch (e) {
+      setSessionMsg(e?.message || String(e));
+    }
+  };
+}
 
 btnLogout.onclick = () => {
   clearSession();
@@ -516,11 +472,11 @@ btnPay.onclick = async () => {
     await pickHealthyPolygonRpc();
     await switchToPolygon();
 
-    // refresh quote right before payment
+    // Ensure quote exists
     await refreshQuote();
     if (!lastQuote) throw new Error("Quote not available.");
 
-    const expectedWei = BigInt(lastQuote.wei);
+    const expectedWei = FIXED_PAY_WEI;
 
     el("shopMsg").textContent = "Opening MetaMask...";
     const txHash = await window.ethereum.request({
@@ -531,8 +487,16 @@ btnPay.onclick = async () => {
     el("shopMsg").textContent = "Waiting for confirmation...";
     await waitForReceipt(txHash);
 
-    setMembership({ account, txHash, expectedWei: expectedWei.toString(), purchasedAt: nowIso() });
-    el("shopMsg").textContent = "Payment confirmed.";
+    setMembership({
+      account,
+      txHash,
+      expectedWei: expectedWei.toString(),
+      purchasedAt: nowIso(),
+      mode: "fixed_1_pol",
+      chainId: POLYGON_CHAIN_ID,
+    });
+
+    el("shopMsg").textContent = "Payment confirmed (1 POL).";
     await refreshMembershipUI();
   } catch (e) {
     el("shopMsg").textContent = e?.message || String(e);
@@ -542,14 +506,13 @@ btnPay.onclick = async () => {
 /* -----------------------
    Init
 ------------------------ */
-
 (async function init() {
   setupTabs();
   el("receiver").textContent = MERCHANT_ADDRESS;
   setStatus("Disconnected", "off");
   setSessionMsg("");
 
-  // Pre-pick a healthy RPC in background for smoother UX
+  // Pre-pick a healthy RPC in background
   pickHealthyPolygonRpc().catch(() => {});
 
   if (!window.ethereum) {
