@@ -16,24 +16,78 @@
     #dot { width: 10px; height:10px; border-radius:50%; }
     #dot.on { background:#22c55e; box-shadow: 0 0 0 6px rgba(34,197,94,.15); }
     #dot.off { background:#ef4444; box-shadow: 0 0 0 6px rgba(239,68,68,.12); }
+
     .tabs { display:flex; gap:10px; margin-top: 18px; }
     .tab { cursor:pointer; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); user-select:none; }
     .tab.active { background: rgba(99,102,241,.15); border-color: rgba(99,102,241,.35); }
+
     .grid { display:grid; grid-template-columns: 1fr; gap: 14px; margin-top: 14px; }
     @media (min-width: 860px){ .grid { grid-template-columns: 1.2fr .8fr; } }
     .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 16px; padding: 14px; }
+
     .row { display:flex; gap: 10px; flex-wrap:wrap; align-items:center; }
     button { cursor:pointer; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #e8eefc; }
     button:hover { background: rgba(255,255,255,.10); }
     button:disabled { opacity:.45; cursor:not-allowed; }
+
     .muted { opacity: .8; }
     .kv { display:grid; grid-template-columns: 140px 1fr; gap: 10px; margin-top: 10px; }
     .kv div { padding: 10px 12px; border-radius: 12px; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.06); overflow-wrap:anywhere; }
+
     .view { display:none; }
     .view.active { display:block; }
+
     .msg { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.08); min-height: 20px; }
     .hint { font-size: 12px; opacity:.85; line-height: 1.4; margin-top: 10px; }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+    /* -------- Plan Card -------- */
+    .planCard {
+      margin-top: 12px;
+      border-radius: 16px;
+      padding: 14px;
+      border: 1px solid rgba(168,85,247,.35);
+      background: linear-gradient(135deg, rgba(168,85,247,.18), rgba(99,102,241,.10));
+      box-shadow: 0 10px 35px rgba(0,0,0,.25);
+      display: none;
+    }
+    .planCard.active { display:block; }
+    .planTop { display:flex; gap: 12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+    .badge {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(168,85,247,.35);
+      background: rgba(168,85,247,.16);
+      font-size: 12px;
+      opacity: .95;
+    }
+    .planName { font-weight: 900; font-size: 16px; }
+    .planSub { font-size: 12px; opacity:.9; margin-top: 4px; }
+    .planBody { display:flex; gap: 16px; align-items:center; margin-top: 12px; flex-wrap:wrap; }
+    .bigNum { font-size: 44px; font-weight: 950; line-height: 1; letter-spacing: -1px; }
+    .smallLabel { font-size: 12px; opacity:.9; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    .ringWrap { width: 92px; height: 92px; position: relative; }
+    .ringWrap svg { width: 92px; height: 92px; transform: rotate(-90deg); }
+    .ringCenter {
+      position:absolute; inset:0;
+      display:grid; place-items:center;
+      font-size: 12px; font-weight: 800;
+      opacity: .95;
+    }
+    .ringBg { stroke: rgba(255,255,255,.18); }
+    .ringFg { stroke: rgba(168,85,247,1); filter: drop-shadow(0 0 10px rgba(168,85,247,.35)); }
+
+    .withdrawBox {
+      margin-top: 12px;
+      border-radius: 14px;
+      padding: 12px;
+      border: 1px dashed rgba(168,85,247,.45);
+      background: rgba(0,0,0,.18);
+      display:none;
+    }
+    .withdrawBox.show { display:block; }
   </style>
 </head>
 
@@ -99,7 +153,6 @@
             <div class="muted">Receiver</div><div id="receiver">-</div>
             <div class="muted">Target</div><div id="price">-</div>
             <div class="muted">Amount (POL)</div><div id="amountPol">-</div>
-            <div class="muted">Oracle Price</div><div id="oraclePrice">-</div>
             <div class="muted">Updated</div><div id="updatedAt">-</div>
           </div>
 
@@ -111,14 +164,68 @@
         </div>
 
         <div id="view-account" class="view">
-          <div style="font-weight:800">Membership</div>
-          <div class="kv">
+          <div style="font-weight:800">Account</div>
+
+          <!-- ✅ Plan Card -->
+          <div id="planCard" class="planCard">
+            <div class="planTop">
+              <div>
+                <div class="planName" id="planTitle">پلن فعال</div>
+                <div class="planSub" id="planSub">پلن ماهانه — پرداخت تایید شد</div>
+              </div>
+              <div class="badge" id="planBadge">ACTIVE</div>
+            </div>
+
+            <div class="planBody">
+              <div class="ringWrap" aria-label="progress">
+                <svg viewBox="0 0 44 44">
+                  <circle class="ringBg" cx="22" cy="22" r="18" stroke-width="4" fill="none"></circle>
+                  <circle id="ringFg" class="ringFg" cx="22" cy="22" r="18" stroke-width="4" fill="none"
+                          stroke-linecap="round"></circle>
+                </svg>
+                <div class="ringCenter">
+                  <div id="ringPct">100%</div>
+                </div>
+              </div>
+
+              <div>
+                <div class="bigNum" id="daysLeft">-</div>
+                <div class="smallLabel">روز باقی‌مانده</div>
+                <div class="smallLabel mono" id="fineTime">-</div>
+              </div>
+
+              <div style="flex:1; min-width: 220px;">
+                <div class="smallLabel">Tx</div>
+                <div class="mono" id="planTx" style="opacity:.95; margin-top:6px; overflow-wrap:anywhere;">-</div>
+
+                <div class="smallLabel" style="margin-top:10px;">Expire</div>
+                <div class="mono" id="planExpire" style="opacity:.95; margin-top:6px;">-</div>
+              </div>
+            </div>
+
+            <!-- ✅ Withdraw section (after 30 days) -->
+            <div id="withdrawBox" class="withdrawBox">
+              <div style="font-weight:900">۳۰ روز تموم شد ✅</div>
+              <div class="muted" style="font-size:12px; margin-top:6px;">
+                حالا می‌تونی درخواست برداشت بزنی. بعد از تایید، پرداخت <b>1.1 POL</b> برای شما انجام می‌شود.
+              </div>
+
+              <div class="row" style="margin-top:10px;">
+                <button id="btnWithdraw">Request Withdrawal</button>
+                <button id="btnCopyWithdraw" title="Copy request payload" style="opacity:.9;">Copy Request</button>
+              </div>
+              <div class="msg" id="withdrawMsg" style="margin-top:10px;"></div>
+            </div>
+          </div>
+
+          <div class="kv" style="margin-top:12px;">
             <div class="muted">Status</div><div id="mStatus">-</div>
             <div class="muted">TxHash</div><div id="mTx">-</div>
             <div class="muted">Verified</div><div id="mVerified">-</div>
           </div>
+
           <div class="hint">
-            Verify یعنی: به همین آدرس، از همین ولت، دقیقاً همین مقدار wei پرداخت شده و receipt موفق بوده.
+            Verify یعنی: به همین آدرس، از همین ولت، دقیقاً 0.1 POL پرداخت شده و receipt موفق بوده.
           </div>
         </div>
       </div>
@@ -130,6 +237,9 @@
           <div class="muted">Mode</div><div>Fixed 0.1 POL</div>
           <div class="muted">Merchant</div><div id="merchantCfg">-</div>
         </div>
+        <div class="hint">
+          نکته: “ارسال درخواست برداشت برای شما” بدون backend واقعی ممکن نیست. اگر یک webhook/سرور داشته باشی، این کد خودش با <code>fetch</code> می‌فرسته.
+        </div>
       </div>
     </div>
   </div>
@@ -139,20 +249,30 @@
    EryVanta — Fixed 0.1 POL (NORMAL)
    - ONLY sends {from,to,value}
    - NO gas/fee/nonce overrides
-   - RPC only for verify + fallback receipt
+   - Adds: Plan UI + 30-day countdown + withdraw request
 ========================= */
 
 const el = (id) => document.getElementById(id);
 
 const APP_NAME = "EryVanta";
 const POLYGON_CHAIN_ID = "0x89"; // 137
-
 const MERCHANT_ADDRESS = "0x03a6BC48ED8733Cc700AE49657931243f078a994";
 
 // ✅ EXACT 0.1 POL in wei
 const PAY_WEI = 100000000000000000n;             // 1e17
 const PAY_WEI_HEX = "0x16345785d8a0000";          // 0.1 * 1e18
 
+// Plan config
+const PLAN_NAME_FA = "پلن 0.1 پالیگانی فعال";     // فقط متنش رو اگر خواستی عوض کن
+const PLAN_DAYS = 30;
+const PLAN_MS = PLAN_DAYS * 24 * 60 * 60 * 1000;
+
+// Withdrawal config
+const WITHDRAW_PAYOUT_POL = "1.1"; // فقط جهت نمایش
+// ✅ اگر webhook/سرور داری اینجا بذار (مثلاً Cloudflare Worker / Firebase / هر چی):
+const WITHDRAW_WEBHOOK_URL = "";   // مثال: "https://your-domain.com/api/withdraw"
+
+// RPC candidates (reads/verify only)
 const POLYGON_RPC_CANDIDATES = [
   "https://polygon-bor-rpc.publicnode.com",
   "https://rpc.ankr.com/polygon",
@@ -168,11 +288,16 @@ const btnLogout = el("btnLogout");
 const btnQuote = el("btnQuote");
 const btnPay = el("btnPay");
 
+const btnWithdraw = el("btnWithdraw");
+const btnCopyWithdraw = el("btnCopyWithdraw");
+
 let account = null;
 let lastQuote = null;
 let activeRpc = null;
 let activateTab = () => {};
+let planTimerId = null;
 
+/* ---------- UI helpers ---------- */
 function setStatus(text, onOff) {
   el("status").textContent = text;
   const dot = el("dot");
@@ -180,10 +305,7 @@ function setStatus(text, onOff) {
   if (onOff === "on") dot.classList.add("on");
   if (onOff === "off") dot.classList.add("off");
 }
-function setSessionMsg(msg = "") {
-  const node = el("sessionMsg");
-  if (node) node.textContent = msg;
-}
+function setSessionMsg(msg = "") { el("sessionMsg").textContent = msg; }
 function nowIso() { return new Date().toISOString(); }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -197,9 +319,7 @@ function formatPolFromWeiHex(weiHex) {
 function isUserRejected(err) { return err?.code === 4001; }
 function isPendingRequest(err) { return err?.code === -32002; }
 
-/* -----------------------
-   Provider (MetaMask)
------------------------- */
+/* ---------- Provider (MetaMask) ---------- */
 async function requireProvider() {
   if (!window.ethereum) throw new Error("MetaMask نصب نیست.");
   return window.ethereum;
@@ -209,9 +329,7 @@ async function getChainIdWallet() {
   return provider.request({ method: "eth_chainId" });
 }
 
-/* -----------------------
-   RPC failover (reads only)
------------------------- */
+/* ---------- RPC failover (reads only) ---------- */
 async function rpcFetch(url, method, params = [], timeoutMs = 6500) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -276,9 +394,7 @@ async function rpcRequestPolygon(method, params = []) {
   throw new Error("Polygon RPC روی همه endpoint ها fail شد.");
 }
 
-/* -----------------------
-   Network switching (Polygon)
------------------------- */
+/* ---------- Network switching (Polygon) ---------- */
 async function switchToPolygon() {
   const provider = await requireProvider();
   const current = await getChainIdWallet().catch(() => null);
@@ -324,9 +440,7 @@ async function fixMetamaskPolygonRpc() {
   });
 }
 
-/* -----------------------
-   Session + membership storage
------------------------- */
+/* ---------- Storage ---------- */
 function getSession() {
   try { return JSON.parse(localStorage.getItem("eryvanta_session") || "null"); }
   catch { return null; }
@@ -342,15 +456,26 @@ function setMembership(m) { localStorage.setItem("eryvanta_membership", JSON.str
 
 function isSignedIn() {
   const s = getSession();
-  return Boolean(
-    s && s.account && s.sig && s.message &&
-    account && s.account.toLowerCase() === account.toLowerCase()
-  );
+  return Boolean(s && s.account && s.sig && s.message && account && s.account.toLowerCase() === account.toLowerCase());
 }
 
-/* -----------------------
-   UI
------------------------- */
+/* ---------- Tabs ---------- */
+function setupTabs() {
+  const tabs = Array.from(document.querySelectorAll(".tab"));
+  const views = { home: el("view-home"), shop: el("view-shop"), account: el("view-account") };
+
+  function activate(name) {
+    tabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+    Object.entries(views).forEach(([k, v]) => v.classList.toggle("active", k === name));
+    if (name === "shop") refreshQuote();
+    if (name === "account") refreshMembershipUI();
+  }
+
+  activateTab = activate;
+  tabs.forEach((t) => t.addEventListener("click", () => activate(t.dataset.tab)));
+}
+
+/* ---------- Wallet UI ---------- */
 function setLoggedOutUI() {
   setStatus("Disconnected", "off");
   setSessionMsg("");
@@ -370,10 +495,7 @@ async function refreshWalletUI() {
   catch { el("chain").textContent = "?"; }
 
   try {
-    const balHex = await window.ethereum.request({
-      method: "eth_getBalance",
-      params: [account, "latest"],
-    });
+    const balHex = await window.ethereum.request({ method: "eth_getBalance", params: [account, "latest"] });
     el("bal").textContent = formatPolFromWeiHex(balHex);
   } catch {
     try {
@@ -381,52 +503,36 @@ async function refreshWalletUI() {
       const balHex = await rpcRequestPolygon("eth_getBalance", [account, "latest"]);
       el("bal").textContent = formatPolFromWeiHex(balHex);
       setSessionMsg("اگر MetaMask کند/قفل شد، Fix Polygon RPC را بزن و در MetaMask تایید کن.");
-    } catch {
-      el("bal").textContent = "?";
-    }
+    } catch { el("bal").textContent = "?"; }
   }
 
   setStatus("Connected", "on");
   await refreshMembershipUI().catch(() => {});
 }
 
-/* -----------------------
-   Quote (fixed 0.1 POL)
------------------------- */
+/* ---------- Quote ---------- */
 async function refreshQuote() {
   el("shopMsg").textContent = "";
   el("receiver").textContent = MERCHANT_ADDRESS;
 
-  lastQuote = {
-    wei: PAY_WEI.toString(),
-    updatedAt: Math.floor(Date.now() / 1000),
-    mode: "fixed_0_1_pol",
-  };
+  lastQuote = { wei: PAY_WEI.toString(), updatedAt: Math.floor(Date.now() / 1000), mode: "fixed_0_1_pol" };
 
   el("price").textContent = "Fixed 0.1 POL";
   el("amountPol").textContent = "0.100000 POL";
-  el("oraclePrice").textContent = "N/A";
   el("updatedAt").textContent = "now";
 
   btnPay.disabled = !isSignedIn();
 }
 
-/* -----------------------
-   Tx verify + receipt
------------------------- */
+/* ---------- Tx verify helpers ---------- */
 async function waitForReceipt(txHash, timeoutMs = 300000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    // wallet
     try {
-      const r = await window.ethereum.request({
-        method: "eth_getTransactionReceipt",
-        params: [txHash],
-      });
+      const r = await window.ethereum.request({ method: "eth_getTransactionReceipt", params: [txHash] });
       if (r) return r;
     } catch {}
 
-    // rpc fallback
     try {
       await pickHealthyPolygonRpc();
       const r2 = await rpcRequestPolygon("eth_getTransactionReceipt", [txHash]);
@@ -459,12 +565,102 @@ async function verifyTx(txHash, expectedWeiStr) {
   return { ok: true, reason: "Verified." };
 }
 
+/* ---------- Plan UI (countdown + ring) ---------- */
+function stopPlanTicker() {
+  if (planTimerId) clearInterval(planTimerId);
+  planTimerId = null;
+}
+function formatDHMS(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const hh = String(h).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  const sss = String(ss).padStart(2, "0");
+  return `${d}d ${hh}:${mm}:${sss}`;
+}
+
+function setupRing() {
+  const ring = el("ringFg");
+  const r = 18;
+  const C = 2 * Math.PI * r;
+  ring.style.strokeDasharray = `${C} ${C}`;
+  ring.style.strokeDashoffset = "0";
+  return C;
+}
+const RING_C = setupRing();
+
+function setRingProgress(pct01) {
+  const ring = el("ringFg");
+  const clamped = Math.max(0, Math.min(1, pct01));
+  const offset = RING_C * (1 - clamped);
+  ring.style.strokeDashoffset = String(offset);
+  el("ringPct").textContent = `${Math.round(clamped * 100)}%`;
+}
+
+function showPlanCard({ txHash, startAtMs, endAtMs, status }) {
+  const planCard = el("planCard");
+  planCard.classList.add("active");
+
+  el("planTitle").textContent = PLAN_NAME_FA;
+  el("planTx").textContent = txHash || "-";
+  el("planExpire").textContent = new Date(endAtMs).toISOString();
+
+  const badge = el("planBadge");
+  if (status === "active") {
+    badge.textContent = "ACTIVE";
+    badge.style.background = "rgba(168,85,247,.16)";
+  } else if (status === "expired") {
+    badge.textContent = "EXPIRED";
+    badge.style.background = "rgba(239,68,68,.14)";
+  } else {
+    badge.textContent = "PENDING";
+    badge.style.background = "rgba(255,255,255,.10)";
+  }
+
+  // live ticker
+  stopPlanTicker();
+  planTimerId = setInterval(() => {
+    const now = Date.now();
+    const remaining = endAtMs - now;
+
+    const days = Math.max(0, Math.ceil(remaining / 86400000));
+    el("daysLeft").textContent = String(days);
+    el("fineTime").textContent = formatDHMS(remaining);
+
+    const pct = remaining <= 0 ? 0 : (remaining / PLAN_MS);
+    setRingProgress(pct);
+
+    // show withdraw when expired
+    const w = el("withdrawBox");
+    if (remaining <= 0) w.classList.add("show");
+    else w.classList.remove("show");
+  }, 1000);
+
+  // also run immediately (no 1s delay)
+  const now = Date.now();
+  const remaining = endAtMs - now;
+  el("daysLeft").textContent = String(Math.max(0, Math.ceil(remaining / 86400000)));
+  el("fineTime").textContent = formatDHMS(remaining);
+  setRingProgress(remaining <= 0 ? 0 : (remaining / PLAN_MS));
+  el("withdrawBox").classList.toggle("show", remaining <= 0);
+}
+
+function hidePlanCard() {
+  el("planCard").classList.remove("active");
+  stopPlanTicker();
+}
+
+/* ---------- Membership UI ---------- */
 async function refreshMembershipUI() {
   const m = getMembership();
   if (!m || !account) {
     el("mStatus").textContent = "Inactive";
     el("mTx").textContent = "-";
     el("mVerified").textContent = "-";
+    hidePlanCard();
     return;
   }
 
@@ -473,6 +669,7 @@ async function refreshMembershipUI() {
   if (m.account?.toLowerCase() !== account.toLowerCase()) {
     el("mStatus").textContent = "Inactive";
     el("mVerified").textContent = "No (different wallet)";
+    hidePlanCard();
     return;
   }
 
@@ -480,33 +677,31 @@ async function refreshMembershipUI() {
     const v = await verifyTx(m.txHash, m.expectedWei);
     el("mStatus").textContent = v.ok ? "Active" : "Inactive";
     el("mVerified").textContent = v.ok ? "Yes" : `No (${v.reason})`;
+
+    if (v.ok) {
+      // plan timing
+      const startAtMs = m.planStartAt ? new Date(m.planStartAt).getTime()
+                        : (m.confirmedAt ? new Date(m.confirmedAt).getTime() : Date.now());
+      const endAtMs = m.planEndAt ? new Date(m.planEndAt).getTime() : (startAtMs + PLAN_MS);
+      const isExpired = Date.now() >= endAtMs;
+
+      showPlanCard({
+        txHash: m.txHash,
+        startAtMs,
+        endAtMs,
+        status: isExpired ? "expired" : "active"
+      });
+    } else {
+      hidePlanCard();
+    }
   } catch (e) {
     el("mStatus").textContent = "Unknown";
     el("mVerified").textContent = e?.message || String(e);
+    hidePlanCard();
   }
 }
 
-/* -----------------------
-   Tabs
------------------------- */
-function setupTabs() {
-  const tabs = Array.from(document.querySelectorAll(".tab"));
-  const views = { home: el("view-home"), shop: el("view-shop"), account: el("view-account") };
-
-  function activate(name) {
-    tabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
-    Object.entries(views).forEach(([k, v]) => v.classList.toggle("active", k === name));
-    if (name === "shop") refreshQuote();
-    if (name === "account") refreshMembershipUI();
-  }
-
-  activateTab = activate;
-  tabs.forEach((t) => t.addEventListener("click", () => activate(t.dataset.tab)));
-}
-
-/* -----------------------
-   Connect + Sign
------------------------- */
+/* ---------- Connect + Sign ---------- */
 async function connectWallet() {
   await requireProvider();
   const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
@@ -523,17 +718,64 @@ async function signIn() {
     `Time: ${nowIso()}`,
   ].join("\n");
 
-  const sig = await provider.request({
-    method: "personal_sign",
-    params: [message, account],
-  });
-
+  const sig = await provider.request({ method: "personal_sign", params: [message, account] });
   setSession({ account, sig, message });
 }
 
-/* -----------------------
-   Handlers
------------------------- */
+/* ---------- Withdraw request ---------- */
+async function buildWithdrawPayload() {
+  const m = getMembership();
+  if (!m) throw new Error("No membership.");
+  const payload = {
+    type: "withdraw_request",
+    app: APP_NAME,
+    chainId: POLYGON_CHAIN_ID,
+    account,
+    merchant: MERCHANT_ADDRESS,
+    txHash: m.txHash,
+    plan: { name: PLAN_NAME_FA, days: PLAN_DAYS, paidWei: String(m.expectedWei || PAY_WEI) },
+    payout: { amountPol: WITHDRAW_PAYOUT_POL },
+    requestedAt: nowIso(),
+    nonce: Math.floor(Math.random() * 1e9),
+  };
+
+  // sign request (so you can verify it’s really from that wallet)
+  const provider = await requireProvider();
+  const message = [
+    `Withdraw request — ${APP_NAME}`,
+    `Account: ${payload.account}`,
+    `TxHash: ${payload.txHash}`,
+    `Payout: ${payload.payout.amountPol} POL`,
+    `Time: ${payload.requestedAt}`,
+    `Nonce: ${payload.nonce}`,
+  ].join("\n");
+
+  const sig = await provider.request({ method: "personal_sign", params: [message, account] });
+
+  payload.signature = sig;
+  payload.signedMessage = message;
+  return payload;
+}
+
+async function sendWithdrawRequest(payload) {
+  // If you have a webhook, we can POST it
+  if (WITHDRAW_WEBHOOK_URL && WITHDRAW_WEBHOOK_URL.startsWith("http")) {
+    const res = await fetch(WITHDRAW_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Webhook error: HTTP ${res.status}`);
+    return "درخواست برای شما ارسال شد (Webhook).";
+  }
+
+  // Otherwise: copy to clipboard (and show user)
+  const text = JSON.stringify(payload, null, 2);
+  try { await navigator.clipboard.writeText(text); } catch {}
+  return "Webhook تنظیم نشده. درخواست کپی شد (Copy Request). می‌تونی همین متن را برای خودت بفرستی/ذخیره کنی.";
+}
+
+/* ---------- Handlers ---------- */
 btnConnect.onclick = async () => {
   try {
     setSessionMsg("");
@@ -561,6 +803,7 @@ btnLogout.onclick = () => {
   btnPay.disabled = true;
   el("shopMsg").textContent = "Signed out.";
   setLoggedOutUI();
+  hidePlanCard();
 };
 
 btnQuote.onclick = async () => { await refreshQuote(); };
@@ -575,10 +818,9 @@ btnPay.onclick = async () => {
     await switchToPolygon();
     await refreshQuote();
 
-    // ✅ NORMAL tx: ONLY from/to/value (no gas/fee/nonce)
+    // NORMAL tx: ONLY from/to/value
     const hintTimer = setTimeout(() => {
-      el("shopMsg").textContent =
-        "اگر پنجره MetaMask باز نشد، خود MetaMask را باز کن (ممکن است یک درخواست Pending داشته باشی).";
+      el("shopMsg").textContent = "اگر پنجره MetaMask باز نشد، خود MetaMask را باز کن (ممکن است یک درخواست Pending داشته باشی).";
     }, 12000);
 
     el("shopMsg").textContent = "Confirm in MetaMask...";
@@ -586,11 +828,7 @@ btnPay.onclick = async () => {
     try {
       txHash = await window.ethereum.request({
         method: "eth_sendTransaction",
-        params: [{
-          from: account,
-          to: MERCHANT_ADDRESS,
-          value: PAY_WEI_HEX, // ✅ exact 0.1 POL
-        }],
+        params: [{ from: account, to: MERCHANT_ADDRESS, value: PAY_WEI_HEX }],
       });
     } catch (err) {
       if (isUserRejected(err)) throw new Error("Transaction rejected in wallet.");
@@ -600,45 +838,79 @@ btnPay.onclick = async () => {
       clearTimeout(hintTimer);
     }
 
-    setMembership({
-      account,
-      txHash,
-      expectedWei: PAY_WEI.toString(),
-      purchasedAt: nowIso(),
-      mode: "fixed_0_1_pol",
-      chainId: POLYGON_CHAIN_ID,
-      status: "pending",
-    });
-
     el("shopMsg").textContent = "Submitted. Waiting for confirmation...";
     const receipt = await waitForReceipt(txHash);
     if (receipt?.status !== "0x1") throw new Error("Transaction failed.");
 
+    const startAt = new Date().toISOString();
+    const endAt = new Date(Date.now() + PLAN_MS).toISOString();
+
     setMembership({
       account,
       txHash,
       expectedWei: PAY_WEI.toString(),
       purchasedAt: nowIso(),
-      mode: "fixed_0_1_pol",
+      confirmedAt: nowIso(),
+      planStartAt: startAt,
+      planEndAt: endAt,
+      mode: "fixed_0_1_pol_monthly",
       chainId: POLYGON_CHAIN_ID,
       status: "confirmed",
-      confirmedAt: nowIso(),
+      withdraw: null,
     });
 
     el("shopMsg").textContent = "Payment confirmed (0.1 POL).";
+    activateTab("account");
     await refreshMembershipUI();
   } catch (e) {
     el("shopMsg").textContent = e?.message || String(e);
   }
 };
 
-/* -----------------------
-   Init
------------------------- */
+btnWithdraw.onclick = async () => {
+  try {
+    el("withdrawMsg").textContent = "";
+    const m = getMembership();
+    if (!m?.planEndAt) throw new Error("Plan info missing.");
+    if (Date.now() < new Date(m.planEndAt).getTime()) throw new Error("هنوز ۳۰ روز کامل نشده.");
+
+    // prevent duplicate request
+    if (m.withdraw?.requestedAt) {
+      el("withdrawMsg").textContent = "این درخواست قبلاً ثبت شده.";
+      return;
+    }
+
+    const payload = await buildWithdrawPayload();
+    const msg = await sendWithdrawRequest(payload);
+
+    // store request
+    m.withdraw = { requestedAt: payload.requestedAt, payload };
+    setMembership(m);
+
+    el("withdrawMsg").textContent = msg;
+    btnWithdraw.disabled = true;
+  } catch (e) {
+    el("withdrawMsg").textContent = e?.message || String(e);
+  }
+};
+
+btnCopyWithdraw.onclick = async () => {
+  try {
+    const m = getMembership();
+    const payload = m?.withdraw?.payload || await buildWithdrawPayload();
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    el("withdrawMsg").textContent = "Request copied.";
+  } catch (e) {
+    el("withdrawMsg").textContent = e?.message || String(e);
+  }
+};
+
+/* ---------- Init ---------- */
 (async function init() {
   setupTabs();
   el("receiver").textContent = MERCHANT_ADDRESS;
   el("merchantCfg").textContent = MERCHANT_ADDRESS;
+
   setStatus("Disconnected", "off");
   setSessionMsg("");
 
@@ -657,10 +929,14 @@ btnPay.onclick = async () => {
     if (account) refreshWalletUI();
   });
 
+  // silent reconnect (no popup)
   const accs = await window.ethereum.request({ method: "eth_accounts" });
   account = accs?.[0] || null;
   if (account) await refreshWalletUI();
   else setLoggedOutUI();
+
+  // preload quote
+  refreshQuote().catch(() => {});
 })();
 </script>
 </body>
