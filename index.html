@@ -5,30 +5,33 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>EryVanta</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; line-height: 1.5; }
-    .wrap { max-width: 900px; }
-    .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    .brand { font-size: 22px; font-weight: 700; }
-    .tabs { display: flex; gap: 10px; }
-    .tab { padding: 8px 12px; border: 1px solid #ddd; border-radius: 10px; cursor: pointer; user-select: none; }
-    .tab.active { background: #f4f4f4; }
-    .card { border: 1px solid #ddd; border-radius: 14px; padding: 16px; margin-top: 14px; }
-    .row { display: grid; grid-template-columns: 180px 1fr; gap: 10px; margin: 6px 0; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; word-break: break-all; }
-    .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; cursor: pointer; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .status { display:flex; align-items:center; gap:8px; }
-    .dot { width:10px; height:10px; border-radius:50%; background:#bbb; }
-    .dot.on { background:#22c55e; }
-    .dot.off { background:#ef4444; }
-    .view { display: none; }
-    .view.active { display: block; }
-    .note { color: #444; font-size: 14px; }
-    .msg { margin-top: 8px; color:#111; }
-    .warn { color:#8a3b00; font-size: 14px; }
+    body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:24px;background:#f7f7fb}
+    .wrap{max-width:980px;margin:0 auto}
+    .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+    .brand{font-size:22px;font-weight:800}
+    .tabs{display:flex;gap:8px}
+    .tab{border:1px solid #ddd;border-radius:10px;padding:8px 14px;background:#fff;cursor:pointer}
+    .tab.active{border-color:#111}
+    .card{background:#fff;border:1px solid #e6e6ee;border-radius:16px;padding:16px;margin:14px 0;box-shadow:0 6px 18px rgba(0,0,0,.04)}
+    .row{display:flex;gap:18px;flex-wrap:wrap}
+    .col{flex:1;min-width:260px}
+    .label{color:#666;font-size:13px;margin-top:10px}
+    .val{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+    .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+    button{padding:10px 14px;border-radius:12px;border:1px solid #ddd;background:#fff;cursor:pointer}
+    button.primary{border-color:#111}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:middle}
+    .dot.on{background:#20b26b}
+    .dot.off{background:#d23b3b}
+    .hint{color:#9a5b00;font-size:13px;margin-top:8px}
+    .msg{margin-top:10px;color:#b00020}
+    .view{display:none}
+    .view.active{display:block}
+    code{background:#f3f3f7;padding:2px 6px;border-radius:8px}
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <div class="top">
@@ -42,67 +45,94 @@
 
     <div class="card">
       <h2 style="margin:0 0 8px 0;">Session</h2>
-      <div class="status">
-        <div id="dot" class="dot off"></div>
-        <div id="status">Disconnected</div>
+      <div class="label"><span id="dot" class="dot off"></span><span id="status">Disconnected</span></div>
+
+      <div class="row">
+        <div class="col">
+          <div class="label">Address</div>
+          <div class="val" id="addr">-</div>
+          <div class="label">Chain</div>
+          <div class="val" id="chain">-</div>
+          <div class="label">Balance (native)</div>
+          <div class="val" id="bal">-</div>
+
+          <div class="btns">
+            <button class="primary" id="btnConnect">Connect & Sign</button>
+            <button id="btnFixRpc">Fix Polygon RPC</button>
+            <button id="btnLogout" disabled>Log Out</button>
+          </div>
+
+          <div class="hint">Always verify the recipient address in MetaMask before confirming a payment.</div>
+          <div class="msg" id="sessionMsg"></div>
+        </div>
+
+        <div class="col">
+          <h3 style="margin:0 0 8px 0;">Quick Info</h3>
+          <div style="color:#333;line-height:1.6;font-size:14px">
+            This site is hosted on GitHub Pages (static hosting). It does not store usernames/passwords.
+            Your “account” is your wallet address + signature.<br/>
+            Quote and verification use public Polygon RPC endpoints (auto-failover).<br/>
+            On-chain payments are public by design.
+          </div>
+        </div>
       </div>
-
-      <div class="row"><div>Address</div><div id="addr" class="mono">-</div></div>
-      <div class="row"><div>Chain</div><div id="chain" class="mono">-</div></div>
-      <div class="row"><div>Balance (native)</div><div id="bal" class="mono">-</div></div>
-
-      <div class="btns">
-        <button id="btnConnect">Connect & Sign</button>
-        <button id="btnLogout" disabled>Log Out</button>
-      </div>
-
-      <div class="warn">Always verify the recipient address in MetaMask before confirming a payment.</div>
     </div>
 
-    <div class="card">
-      <h2 style="margin:0 0 8px 0;">Quick Info</h2>
-      <div class="note">
-        This site is hosted on GitHub Pages (static hosting). It does not store usernames/passwords.
-        Your “account” is your wallet address + signature.
-        Membership activation is verified by checking the transaction on-chain.
-        On-chain payments are public by design.
+    <div id="view-home" class="view active">
+      <div class="card">
+        <h2 style="margin:0 0 8px 0;">Home</h2>
+        <div>Connect your wallet, sign in, then open the <b>Shop</b> tab to purchase a membership.</div>
       </div>
     </div>
 
-    <div id="view-home" class="card view active">
-      <h2 style="margin:0 0 8px 0;">Home</h2>
-      <div>Connect your wallet, sign in, then open the Shop tab to purchase a membership.</div>
-    </div>
+    <div id="view-shop" class="view">
+      <div class="card">
+        <h2 style="margin:0 0 8px 0;">Shop</h2>
+        <div><b>Membership</b></div>
+        <div>$1.00 (paid in POL on Polygon)</div>
 
-    <div id="view-shop" class="card view">
-      <h2 style="margin:0 0 8px 0;">Shop</h2>
+        <div class="btns" style="margin-top:12px">
+          <button id="btnQuote">Refresh Quote</button>
+          <button class="primary" id="btnPay" disabled>Pay with MetaMask</button>
+        </div>
 
-      <h3 style="margin:8px 0;">Membership</h3>
-      <div>$1.00 (paid in POL on Polygon)</div>
+        <div class="label">Receiver</div>
+        <div class="val" id="receiver">-</div>
 
-      <div class="btns" style="margin-top:10px;">
-        <button id="btnQuote">Refresh Quote</button>
-        <button id="btnPay" disabled>Pay with MetaMask</button>
+        <div class="label">Chainlink Price (USD per POL)</div>
+        <div class="val" id="price">-</div>
+
+        <div class="label">Amount to Pay</div>
+        <div class="val" id="amountPol">-</div>
+
+        <div class="label">Price Updated</div>
+        <div class="val" id="updatedAt">-</div>
+
+        <div class="hint">If your wallet is not on Polygon, the site will request a network switch (chainId <code>0x89</code>).</div>
+        <div class="msg" id="shopMsg"></div>
       </div>
-
-      <div class="row"><div>Receiver</div><div id="receiver" class="mono">-</div></div>
-      <div class="row"><div>Chainlink Price (USD per POL)</div><div id="price" class="mono">-</div></div>
-      <div class="row"><div>Amount to Pay</div><div id="amountPol" class="mono">-</div></div>
-      <div class="row"><div>Price Updated</div><div id="updatedAt" class="mono">-</div></div>
-
-      <div class="note">If the network is not Polygon, the site will request a network switch to Polygon (chainId 0x89).</div>
-      <div id="shopMsg" class="msg"></div>
     </div>
 
-    <div id="view-account" class="card view">
-      <h2 style="margin:0 0 8px 0;">Account</h2>
-      <div class="row"><div>Membership Status</div><div id="mStatus" class="mono">-</div></div>
-      <div class="row"><div>Last Payment Tx</div><div id="mTx" class="mono">-</div></div>
-      <div class="row"><div>Verified On-Chain</div><div id="mVerified" class="mono">-</div></div>
-      <div class="note">This demo stores the last successful payment txHash locally, then verifies it on-chain when you revisit.</div>
+    <div id="view-account" class="view">
+      <div class="card">
+        <h2 style="margin:0 0 8px 0;">Account</h2>
+
+        <div class="label">Membership Status</div>
+        <div class="val" id="mStatus">-</div>
+
+        <div class="label">Last Payment Tx</div>
+        <div class="val" id="mTx">-</div>
+
+        <div class="label">Verified On-Chain</div>
+        <div class="val" id="mVerified">-</div>
+
+        <div style="color:#555;margin-top:10px;font-size:13px">
+          This demo stores the last successful payment txHash locally, then verifies it on-chain when you revisit.
+        </div>
+      </div>
     </div>
+
+    <script src="./app.js"></script>
   </div>
-
-  <script src="./app.js"></script>
 </body>
 </html>
