@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EryVanta</title>
+  <style>
+    body { font-family: system-ui; margin: 24px; line-height: 1.6; }
+    .card { max-width: 760px; padding: 16px; border: 1px solid #ddd; border-radius: 12px; }
+    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; cursor: pointer; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 6px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .muted { color: #555; }
+    hr { border: none; border-top: 1px solid #eee; margin: 14px 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>EryVanta — MetaMask Connect</h2>
+    <p id="status">Status: Disconnected</p>
+
+    <div class="row">
+      <button id="btnConnect">Connect MetaMask</button>
+      <button id="btnSign" disabled>Sign Message (Login)</button>
+      <button id="btnCopy" disabled>Copy Address</button>
+    </div>
+
+    <hr />
+
+    <div>
+      <div>Address: <code id="addr">-</code></div>
+      <div>Network: <code id="chainName">-</code> (<code id="chain">-</code>)</div>
+      <div>ETH Balance: <code id="bal">-</code></div>
+      <div>Signature: <code id="sig">-</code></div>
+    </div>
+
+    <p class="muted" style="margin-top:14px">
+      Security note: Never ask users for their seed phrase or recovery phrase.
+    </p>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
