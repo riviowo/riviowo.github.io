@@ -2,6 +2,7 @@ const el = (id) => document.getElementById(id);
 
 const APP_NAME = "EryVanta";
 const POLYGON_CHAIN_ID = "0x89";
+
 const MERCHANT_ADDRESS = "0x03a6BC48ED8733Cc700AE49657931243f078a994";
 const CHAINLINK_POL_USD_FEED = "0xAB594600376Ec9fD91F8e885dADF0CE036862dE0";
 const PRICE_USD_CENTS = 100;
@@ -16,9 +17,7 @@ const btnPay = el("btnPay");
 
 let account = null;
 let lastQuote = null;
-
-// tab activator handle
-let activateTab = (name) => {};
+let activateTab = () => {};
 
 function setStatus(text, onOff) {
   el("status").textContent = text;
@@ -29,15 +28,13 @@ function setStatus(text, onOff) {
 }
 
 function toHex(bigint) {
-  if (bigint < 0n) throw new Error("Negative BigInt not supported");
   return "0x" + bigint.toString(16);
 }
 
 function readWord(hex, wordIndex) {
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
   const start = wordIndex * 64;
-  const end = start + 64;
-  return "0x" + clean.slice(start, end);
+  return "0x" + clean.slice(start, start + 64);
 }
 
 function uintFromWord(wordHex) {
@@ -77,10 +74,7 @@ async function requireProvider() {
 
 async function ethCall(to, data) {
   const provider = await requireProvider();
-  return provider.request({
-    method: "eth_call",
-    params: [{ to, data }, "latest"],
-  });
+  return provider.request({ method: "eth_call", params: [{ to, data }, "latest"] });
 }
 
 async function getChainId() {
@@ -102,19 +96,17 @@ async function switchToPolygon() {
     if (err && err.code === 4902) {
       await provider.request({
         method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: POLYGON_CHAIN_ID,
-            chainName: "Polygon Mainnet",
-            rpcUrls: [
-              "https://polygon-rpc.com",
-              "https://rpc.ankr.com/polygon",
-              "https://polygon-bor-rpc.publicnode.com",
-            ],
-            nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
-            blockExplorerUrls: ["https://polygonscan.com/"],
-          },
-        ],
+        params: [{
+          chainId: POLYGON_CHAIN_ID,
+          chainName: "Polygon Mainnet",
+          rpcUrls: [
+            "https://rpc.ankr.com/polygon",
+            "https://polygon-bor-rpc.publicnode.com",
+            "https://polygon-rpc.com",
+          ],
+          nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
+          blockExplorerUrls: ["https://polygonscan.com/"],
+        }],
       });
     } else {
       throw err;
@@ -132,58 +124,49 @@ function setLoggedOutUI() {
 }
 
 function getSession() {
-  try {
-    return JSON.parse(localStorage.getItem("eryvanta_session") || "null");
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(localStorage.getItem("eryvanta_session") || "null"); }
+  catch { return null; }
 }
-
-function setSession(session) {
-  localStorage.setItem("eryvanta_session", JSON.stringify(session));
-}
-
-function clearSession() {
-  localStorage.removeItem("eryvanta_session");
-}
+function setSession(s) { localStorage.setItem("eryvanta_session", JSON.stringify(s)); }
+function clearSession() { localStorage.removeItem("eryvanta_session"); }
 
 function getMembership() {
-  try {
-    return JSON.parse(localStorage.getItem("eryvanta_membership") || "null");
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(localStorage.getItem("eryvanta_membership") || "null"); }
+  catch { return null; }
 }
-
-function setMembership(data) {
-  localStorage.setItem("eryvanta_membership", JSON.stringify(data));
-}
+function setMembership(m) { localStorage.setItem("eryvanta_membership", JSON.stringify(m)); }
 
 function isSignedIn() {
   const s = getSession();
-  return Boolean(
-    s && s.account && s.sig && s.message &&
-    account && s.account.toLowerCase() === account.toLowerCase()
-  );
+  return Boolean(s && s.account && s.sig && s.message && account && s.account.toLowerCase() === account.toLowerCase());
 }
 
 async function refreshWalletUI() {
   if (!window.ethereum || !account) return;
 
-  const chainId = await getChainId();
-  const balanceHex = await window.ethereum.request({
-    method: "eth_getBalance",
-    params: [account, "latest"],
-  });
-
+  // show address immediately even if RPC fails
   el("addr").textContent = account;
-  el("chain").textContent = chainId;
-  el("bal").textContent = formatEthFromWeiHex(balanceHex);
-
   setStatus("Connected", "on");
   btnLogout.disabled = false;
 
-  await refreshMembershipUI();
+  // chainId (may fail if RPC is down)
+  try {
+    el("chain").textContent = await getChainId();
+  } catch (e) {
+    el("chain").textContent = "?";
+    setStatus(e?.message || String(e), "off");
+  }
+
+  // balance (may fail if RPC is down)
+  try {
+    const balHex = await window.ethereum.request({ method: "eth_getBalance", params: [account, "latest"] });
+    el("bal").textContent = formatEthFromWeiHex(balHex);
+  } catch (e) {
+    el("bal").textContent = "?";
+    setStatus(e?.message || String(e), "off");
+  }
+
+  try { await refreshMembershipUI(); } catch {}
 }
 
 async function getChainlinkPriceUsdPerPol() {
@@ -196,7 +179,6 @@ async function getChainlinkPriceUsdPerPol() {
 
   if (answer <= 0n) throw new Error("Invalid price feed answer.");
   if (!updatedAt) throw new Error("Price feed has no updatedAt.");
-
   return { answer, decimals, updatedAt };
 }
 
@@ -204,7 +186,7 @@ function computeWeiForUsdCents(usdCents, priceAnswer, priceDecimals) {
   const dec = 10n ** BigInt(priceDecimals);
   const numerator = BigInt(usdCents) * dec * (10n ** 18n);
   const denom = 100n * BigInt(priceAnswer);
-  return (numerator + denom - 1n) / denom;
+  return (numerator + denom - 1n) / denom; // round up
 }
 
 function formatPrice(answer, decimals) {
@@ -219,8 +201,7 @@ function fmtTimeAgo(unixSec) {
   const minutes = Math.max(0, Math.floor(diffMs / 60000));
   if (minutes < 2) return "just now";
   if (minutes < 60) return `${minutes} minutes ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours} hours ago`;
+  return `${Math.floor(minutes / 60)} hours ago`;
 }
 
 async function refreshQuote() {
@@ -231,7 +212,6 @@ async function refreshQuote() {
     await switchToPolygon();
 
     const { answer, decimals, updatedAt } = await getChainlinkPriceUsdPerPol();
-
     const ageMin = Math.floor((Date.now() / 1000 - updatedAt) / 60);
     if (ageMin > 30) throw new Error("Price feed looks stale. Please try again.");
 
@@ -260,28 +240,7 @@ async function waitForReceipt(txHash, timeoutMs = 120000) {
     if (r) return r;
     await new Promise((res) => setTimeout(res, 2500));
   }
-  throw new Error("Timed out waiting for transaction confirmation.");
-}
-
-async function verifyTx(txHash, expectedWeiStr) {
-  const provider = await requireProvider();
-  const tx = await provider.request({ method: "eth_getTransactionByHash", params: [txHash] });
-  if (!tx) return { ok: false, reason: "Transaction not found." };
-
-  const to = (tx.to || "").toLowerCase();
-  const from = (tx.from || "").toLowerCase();
-  const valueWei = BigInt(tx.value || "0x0");
-  const expectedWei = BigInt(expectedWeiStr);
-
-  if (to !== MERCHANT_ADDRESS.toLowerCase()) return { ok: false, reason: "Receiver mismatch." };
-  if (!account || from !== account.toLowerCase()) return { ok: false, reason: "Sender mismatch." };
-  if (valueWei !== expectedWei) return { ok: false, reason: "Amount mismatch." };
-
-  const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [txHash] });
-  if (!receipt) return { ok: false, reason: "Receipt not found yet." };
-  if (receipt.status !== "0x1") return { ok: false, reason: "Transaction failed." };
-
-  return { ok: true, reason: "Verified." };
+  throw new Error("Timed out waiting for confirmation.");
 }
 
 async function refreshMembershipUI() {
@@ -292,41 +251,20 @@ async function refreshMembershipUI() {
     el("mVerified").textContent = "-";
     return;
   }
-
   el("mTx").textContent = m.txHash || "-";
-
-  if (m.account?.toLowerCase() !== account.toLowerCase()) {
-    el("mStatus").textContent = "Inactive";
-    el("mVerified").textContent = "No (different wallet)";
-    return;
-  }
-
-  try {
-    await switchToPolygon();
-    const v = await verifyTx(m.txHash, m.expectedWei);
-    el("mStatus").textContent = v.ok ? "Active" : "Inactive";
-    el("mVerified").textContent = v.ok ? "Yes" : `No (${v.reason})`;
-  } catch (e) {
-    el("mStatus").textContent = "Unknown";
-    el("mVerified").textContent = e?.message || String(e);
-  }
+  el("mStatus").textContent = "Unknown";
+  el("mVerified").textContent = "Check Account tab after RPC is stable.";
 }
 
 function setupTabs() {
   const tabs = Array.from(document.querySelectorAll(".tab"));
-  const views = {
-    home: el("view-home"),
-    shop: el("view-shop"),
-    account: el("view-account"),
-  };
+  const views = { home: el("view-home"), shop: el("view-shop"), account: el("view-account") };
 
   function activate(name) {
     tabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
     Object.entries(views).forEach(([k, v]) => v.classList.toggle("active", k === name));
     if (name === "shop") refreshQuote();
-    if (name === "account") refreshMembershipUI();
   }
-
   activateTab = activate;
   tabs.forEach((t) => t.addEventListener("click", () => activate(t.dataset.tab)));
 }
@@ -340,35 +278,18 @@ async function connectWallet() {
 }
 
 async function signIn() {
-  if (!account) throw new Error("Connect wallet first.");
   const provider = await requireProvider();
-  const message = [
-    `Sign in to ${APP_NAME}`,
-    `Address: ${account}`,
-    `Time: ${nowIso()}`,
-  ].join("\n");
-
-  const sig = await provider.request({
-    method: "personal_sign",
-    params: [message, account],
-  });
-
+  const message = [`Sign in to ${APP_NAME}`, `Address: ${account}`, `Time: ${nowIso()}`].join("\n");
+  const sig = await provider.request({ method: "personal_sign", params: [message, account] });
   setSession({ account, sig, message });
 }
 
 btnConnect.onclick = async () => {
   try {
     await connectWallet();
-
-    // One-click flow: connect + sign (if not already signed)
-    if (!isSignedIn()) {
-      await signIn();
-    }
-
-    // After sign-in: go to Shop and load quote
+    if (!isSignedIn()) await signIn();
     activateTab("shop");
     await refreshQuote();
-    btnPay.disabled = false;
   } catch (e) {
     setStatus(e?.message || String(e), "off");
   }
@@ -393,8 +314,8 @@ btnPay.onclick = async () => {
     await refreshQuote();
     if (!lastQuote) throw new Error("Quote not available.");
 
-    const expectedWei = BigInt(lastQuote.wei);
     const provider = await requireProvider();
+    const expectedWei = BigInt(lastQuote.wei);
 
     el("shopMsg").textContent = "Opening MetaMask...";
     const txHash = await provider.request({
@@ -405,20 +326,8 @@ btnPay.onclick = async () => {
     el("shopMsg").textContent = "Waiting for confirmation...";
     await waitForReceipt(txHash);
 
-    setMembership({
-      account,
-      txHash,
-      expectedWei: expectedWei.toString(),
-      usdCents: PRICE_USD_CENTS,
-      priceAnswer: lastQuote.answer,
-      priceDecimals: lastQuote.decimals,
-      priceUpdatedAt: lastQuote.updatedAt,
-      purchasedAt: nowIso(),
-      chainId: POLYGON_CHAIN_ID,
-    });
-
-    el("shopMsg").textContent = "Payment confirmed. Membership activated.";
-    await refreshMembershipUI();
+    setMembership({ account, txHash, expectedWei: expectedWei.toString(), purchasedAt: nowIso() });
+    el("shopMsg").textContent = "Payment confirmed.";
   } catch (e) {
     el("shopMsg").textContent = e?.message || String(e);
   }
@@ -444,14 +353,9 @@ btnPay.onclick = async () => {
     if (account) refreshWalletUI();
   });
 
-  // Silent reconnect (no popups)
+  // silent reconnect (no popup)
   const accs = await window.ethereum.request({ method: "eth_accounts" });
   account = accs?.[0] || null;
-
-  if (account) {
-    await refreshWalletUI();
-    // do NOT auto-sign; wait for user click (security + MetaMask behavior)
-  } else {
-    setLoggedOutUI();
-  }
+  if (account) await refreshWalletUI();
+  else setLoggedOutUI();
 })();
