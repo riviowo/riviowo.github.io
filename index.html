@@ -44,7 +44,7 @@
         <div class="logo"><span>EV</span></div>
         <div>
           <div style="font-weight:800;font-size:18px">EryVanta</div>
-          <div class="muted" style="font-size:12px">Polygon (POL) — Pay fixed 1 POL (Test)</div>
+          <div class="muted" style="font-size:12px">Polygon (POL) — Pay fixed 0.1 POL</div>
         </div>
       </div>
 
@@ -64,7 +64,7 @@
       <div class="card">
         <div id="view-home" class="view active">
           <div class="row">
-            <button id="btnConnect">Connect</button>
+            <button id="btnConnect">Connect + Sign</button>
             <button id="btnFixRpc" title="Update Polygon RPC in MetaMask">Fix Polygon RPC</button>
             <button id="btnLogout" disabled>Logout</button>
           </div>
@@ -78,8 +78,8 @@
           </div>
 
           <div class="hint">
-            اگر MetaMask پنجره‌ی تایید را دیر باز کرد، معمولاً مشکل از RPC شبکه داخل MetaMask است.
-            دکمه <b>Fix Polygon RPC</b> را بزن و داخل MetaMask تایید کن.
+            اگر MetaMask پنجره تایید را دیر باز کرد، معمولاً مشکل از RPC شبکه داخل MetaMask است.
+            <b>Fix Polygon RPC</b> را بزن و داخل MetaMask تایید کن.
           </div>
         </div>
 
@@ -87,10 +87,10 @@
           <div class="row" style="justify-content:space-between">
             <div>
               <div style="font-weight:800">Checkout</div>
-              <div class="muted" style="font-size:12px">Pay native POL (fixed 1 POL)</div>
+              <div class="muted" style="font-size:12px">Pay in native POL (fixed)</div>
             </div>
             <div class="row">
-              <button id="btnQuote">Refresh</button>
+              <button id="btnQuote">Refresh Quote</button>
               <button id="btnPay" disabled>Pay</button>
             </div>
           </div>
@@ -106,7 +106,7 @@
           <div class="msg" id="shopMsg"></div>
 
           <div class="hint">
-            این نسخه “نرمال مثل سایت‌ها” است: در پرداخت فقط <code>from/to/value</code> ارسال می‌شود و هیچ fee/gas دستی ندارد.
+            این نسخه فقط مقدار <code>0.1 POL</code> را می‌فرستد و هیچ <code>gas/fee/nonce</code> دستی تنظیم نمی‌کند؛ همه‌چیز را MetaMask/شبکه تعیین می‌کند.
           </div>
         </div>
 
@@ -118,7 +118,7 @@
             <div class="muted">Verified</div><div id="mVerified">-</div>
           </div>
           <div class="hint">
-            Verify یعنی: به همین آدرس، از همین ولت، دقیقاً 1 POL پرداخت شده و receipt موفق بوده.
+            Verify یعنی: به همین آدرس، از همین ولت، دقیقاً همین مقدار wei پرداخت شده و receipt موفق بوده.
           </div>
         </div>
       </div>
@@ -127,11 +127,8 @@
         <div style="font-weight:800">Config</div>
         <div class="kv">
           <div class="muted">Network</div><div>Polygon Mainnet (ChainId 137 / 0x89)</div>
-          <div class="muted">Mode</div><div>Fixed 1 POL (Test)</div>
+          <div class="muted">Mode</div><div>Fixed 0.1 POL</div>
           <div class="muted">Merchant</div><div id="merchantCfg">-</div>
-        </div>
-        <div class="hint">
-          اگر باز هم “Pending request” دیدی، MetaMask را باز کن (ممکن است یک درخواست قبلی هنوز باز مانده باشد).
         </div>
       </div>
     </div>
@@ -139,10 +136,10 @@
 
 <script>
 /* =========================
-   EryVanta — NORMAL payment (fixed 1 POL)
-   - No manual gas/fee/nonce
-   - MetaMask chooses best fees
-   - RPC only for verify/fallback reads
+   EryVanta — Fixed 0.1 POL (NORMAL)
+   - ONLY sends {from,to,value}
+   - NO gas/fee/nonce overrides
+   - RPC only for verify + fallback receipt
 ========================= */
 
 const el = (id) => document.getElementById(id);
@@ -152,11 +149,10 @@ const POLYGON_CHAIN_ID = "0x89"; // 137
 
 const MERCHANT_ADDRESS = "0x03a6BC48ED8733Cc700AE49657931243f078a994";
 
-// EXACT 1 POL (1e18 wei)
-const ONE_POL_WEI_HEX = "0xde0b6b3a7640000";
-const ONE_POL_WEI = 1000000000000000000n;
+// ✅ EXACT 0.1 POL in wei
+const PAY_WEI = 100000000000000000n;             // 1e17
+const PAY_WEI_HEX = "0x16345785d8a0000";          // 0.1 * 1e18
 
-// RPC candidates (reads/verify only)
 const POLYGON_RPC_CANDIDATES = [
   "https://polygon-bor-rpc.publicnode.com",
   "https://rpc.ankr.com/polygon",
@@ -184,12 +180,10 @@ function setStatus(text, onOff) {
   if (onOff === "on") dot.classList.add("on");
   if (onOff === "off") dot.classList.add("off");
 }
-
 function setSessionMsg(msg = "") {
   const node = el("sessionMsg");
   if (node) node.textContent = msg;
 }
-
 function nowIso() { return new Date().toISOString(); }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -200,7 +194,6 @@ function formatPolFromWeiHex(weiHex) {
   const frac = (wei % base).toString().padStart(18, "0").slice(0, 6);
   return `${whole}.${frac}`;
 }
-
 function isUserRejected(err) { return err?.code === 4001; }
 function isPendingRequest(err) { return err?.code === -32002; }
 
@@ -211,7 +204,6 @@ async function requireProvider() {
   if (!window.ethereum) throw new Error("MetaMask نصب نیست.");
   return window.ethereum;
 }
-
 async function getChainIdWallet() {
   const provider = await requireProvider();
   return provider.request({ method: "eth_chainId" });
@@ -238,14 +230,12 @@ async function rpcFetch(url, method, params = [], timeoutMs = 6500) {
     clearTimeout(t);
   }
 }
-
 async function isHealthyPolygonRpc(url) {
   const chainId = await rpcFetch(url, "eth_chainId", []);
   if (String(chainId).toLowerCase() !== POLYGON_CHAIN_ID) throw new Error("Wrong chainId");
   await rpcFetch(url, "eth_blockNumber", []);
   return true;
 }
-
 function getCachedRpc() {
   try {
     const x = JSON.parse(localStorage.getItem("eryvanta_polygon_rpc") || "null");
@@ -254,15 +244,12 @@ function getCachedRpc() {
     return x.url;
   } catch { return null; }
 }
-
 function cacheRpc(url) {
   localStorage.setItem("eryvanta_polygon_rpc", JSON.stringify({ url, ts: Date.now() }));
 }
-
 async function pickHealthyPolygonRpc() {
   const cached = getCachedRpc();
   if (cached) { activeRpc = cached; return activeRpc; }
-
   for (const url of POLYGON_RPC_CANDIDATES) {
     try {
       await isHealthyPolygonRpc(url);
@@ -273,13 +260,10 @@ async function pickHealthyPolygonRpc() {
   }
   throw new Error("هیچ RPC سالمی برای Polygon پیدا نشد.");
 }
-
 async function rpcRequestPolygon(method, params = []) {
   if (!activeRpc) await pickHealthyPolygonRpc();
-
   const tried = new Set();
   const candidates = [activeRpc, ...POLYGON_RPC_CANDIDATES.filter((u) => u !== activeRpc)];
-
   for (const url of candidates) {
     if (tried.has(url)) continue;
     tried.add(url);
@@ -324,12 +308,10 @@ async function switchToPolygon() {
     }
   }
 }
-
 async function fixMetamaskPolygonRpc() {
   const provider = await requireProvider();
   let bestRpc = POLYGON_RPC_CANDIDATES[0];
   try { bestRpc = await pickHealthyPolygonRpc(); } catch {}
-
   await provider.request({
     method: "wallet_addEthereumChain",
     params: [{
@@ -343,14 +325,28 @@ async function fixMetamaskPolygonRpc() {
 }
 
 /* -----------------------
-   Membership storage
+   Session + membership storage
 ------------------------ */
+function getSession() {
+  try { return JSON.parse(localStorage.getItem("eryvanta_session") || "null"); }
+  catch { return null; }
+}
+function setSession(s) { localStorage.setItem("eryvanta_session", JSON.stringify(s)); }
+function clearSession() { localStorage.removeItem("eryvanta_session"); }
+
 function getMembership() {
   try { return JSON.parse(localStorage.getItem("eryvanta_membership") || "null"); }
   catch { return null; }
 }
 function setMembership(m) { localStorage.setItem("eryvanta_membership", JSON.stringify(m)); }
-function clearMembership() { localStorage.removeItem("eryvanta_membership"); }
+
+function isSignedIn() {
+  const s = getSession();
+  return Boolean(
+    s && s.account && s.sig && s.message &&
+    account && s.account.toLowerCase() === account.toLowerCase()
+  );
+}
 
 /* -----------------------
    UI
@@ -364,13 +360,11 @@ function setLoggedOutUI() {
   btnLogout.disabled = true;
   btnPay.disabled = true;
 }
-
 async function refreshWalletUI() {
   if (!account) return;
 
   el("addr").textContent = account;
   btnLogout.disabled = false;
-  btnPay.disabled = false;
 
   try { el("chain").textContent = await getChainIdWallet(); }
   catch { el("chain").textContent = "?"; }
@@ -397,28 +391,28 @@ async function refreshWalletUI() {
 }
 
 /* -----------------------
-   Quote (fixed 1 POL)
+   Quote (fixed 0.1 POL)
 ------------------------ */
 async function refreshQuote() {
   el("shopMsg").textContent = "";
   el("receiver").textContent = MERCHANT_ADDRESS;
 
   lastQuote = {
-    wei: ONE_POL_WEI.toString(),
+    wei: PAY_WEI.toString(),
     updatedAt: Math.floor(Date.now() / 1000),
-    mode: "fixed_1_pol",
+    mode: "fixed_0_1_pol",
   };
 
-  el("price").textContent = "Fixed 1 POL";
-  el("amountPol").textContent = "1.000000 POL";
+  el("price").textContent = "Fixed 0.1 POL";
+  el("amountPol").textContent = "0.100000 POL";
   el("oraclePrice").textContent = "N/A";
   el("updatedAt").textContent = "now";
 
-  btnPay.disabled = !account;
+  btnPay.disabled = !isSignedIn();
 }
 
 /* -----------------------
-   Receipt wait (wallet first, RPC fallback)
+   Tx verify + receipt
 ------------------------ */
 async function waitForReceipt(txHash, timeoutMs = 300000) {
   const start = Date.now();
@@ -511,84 +505,30 @@ function setupTabs() {
 }
 
 /* -----------------------
-   Connect + Pay (NORMAL)
+   Connect + Sign
 ------------------------ */
 async function connectWallet() {
   await requireProvider();
-  let accounts;
-  try {
-    accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-  } catch (err) {
-    if (isPendingRequest(err)) throw new Error("یک درخواست MetaMask باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
-    throw err;
-  }
-
+  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
   account = accounts?.[0] || null;
   if (!account) throw new Error("هیچ اکانتی انتخاب نشد.");
   await refreshWalletUI();
 }
 
-async function sendPaymentNormal() {
-  if (!account) throw new Error("اول کیف پول را وصل کن.");
+async function signIn() {
+  const provider = await requireProvider();
+  const message = [
+    `Sign in to ${APP_NAME}`,
+    `Address: ${account}`,
+    `Time: ${nowIso()}`,
+  ].join("\n");
 
-  await switchToPolygon();
-  await refreshQuote();
-  const expectedWeiStr = lastQuote?.wei;
-  if (!expectedWeiStr) throw new Error("Quote available نیست.");
-
-  // gentle hint if popup doesn’t show quickly
-  const hintTimer = setTimeout(() => {
-    el("shopMsg").textContent = "اگر پنجره MetaMask باز نشد، خود MetaMask را باز کن (ممکن است یک درخواست Pending داشته باشی).";
-  }, 12000);
-
-  let txHash;
-  try {
-    el("shopMsg").textContent = "Confirm in MetaMask...";
-    txHash = await window.ethereum.request({
-      method: "eth_sendTransaction",
-      params: [{
-        from: account,
-        to: MERCHANT_ADDRESS,
-        value: ONE_POL_WEI_HEX, // EXACT 1 POL
-        // IMPORTANT: no gas / no fees / no nonce
-      }],
-    });
-  } catch (err) {
-    if (isUserRejected(err)) throw new Error("Transaction rejected in wallet.");
-    if (isPendingRequest(err)) throw new Error("یک درخواست MetaMask باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
-    throw err;
-  } finally {
-    clearTimeout(hintTimer);
-  }
-
-  setMembership({
-    account,
-    txHash,
-    expectedWei: expectedWeiStr,
-    purchasedAt: nowIso(),
-    mode: "fixed_1_pol",
-    chainId: POLYGON_CHAIN_ID,
-    status: "pending",
+  const sig = await provider.request({
+    method: "personal_sign",
+    params: [message, account],
   });
 
-  el("shopMsg").textContent = "Submitted. Waiting for confirmation...";
-
-  const receipt = await waitForReceipt(txHash);
-  if (receipt?.status !== "0x1") throw new Error("Transaction failed.");
-
-  setMembership({
-    account,
-    txHash,
-    expectedWei: expectedWeiStr,
-    purchasedAt: nowIso(),
-    mode: "fixed_1_pol",
-    chainId: POLYGON_CHAIN_ID,
-    status: "confirmed",
-    confirmedAt: nowIso(),
-  });
-
-  el("shopMsg").textContent = "Payment confirmed (1 POL).";
-  await refreshMembershipUI();
+  setSession({ account, sig, message });
 }
 
 /* -----------------------
@@ -598,6 +538,7 @@ btnConnect.onclick = async () => {
   try {
     setSessionMsg("");
     await connectWallet();
+    if (!isSignedIn()) await signIn();
     activateTab("shop");
     await refreshQuote();
   } catch (e) {
@@ -616,25 +557,78 @@ btnFixRpc.onclick = async () => {
 };
 
 btnLogout.onclick = () => {
-  account = null;
-  clearMembership();
+  clearSession();
   btnPay.disabled = true;
-  el("shopMsg").textContent = "Disconnected.";
+  el("shopMsg").textContent = "Signed out.";
   setLoggedOutUI();
 };
 
 btnQuote.onclick = async () => { await refreshQuote(); };
 
 btnPay.onclick = async () => {
-  const old = btnPay.disabled;
-  btnPay.disabled = true;
   try {
     el("shopMsg").textContent = "";
-    await sendPaymentNormal();
+
+    if (!account) throw new Error("اول کیف پول را وصل کن.");
+    if (!isSignedIn()) throw new Error("اول Sign in (signature) انجام بده.");
+
+    await switchToPolygon();
+    await refreshQuote();
+
+    // ✅ NORMAL tx: ONLY from/to/value (no gas/fee/nonce)
+    const hintTimer = setTimeout(() => {
+      el("shopMsg").textContent =
+        "اگر پنجره MetaMask باز نشد، خود MetaMask را باز کن (ممکن است یک درخواست Pending داشته باشی).";
+    }, 12000);
+
+    el("shopMsg").textContent = "Confirm in MetaMask...";
+    let txHash;
+    try {
+      txHash = await window.ethereum.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: account,
+          to: MERCHANT_ADDRESS,
+          value: PAY_WEI_HEX, // ✅ exact 0.1 POL
+        }],
+      });
+    } catch (err) {
+      if (isUserRejected(err)) throw new Error("Transaction rejected in wallet.");
+      if (isPendingRequest(err)) throw new Error("یک درخواست MetaMask باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
+      throw err;
+    } finally {
+      clearTimeout(hintTimer);
+    }
+
+    setMembership({
+      account,
+      txHash,
+      expectedWei: PAY_WEI.toString(),
+      purchasedAt: nowIso(),
+      mode: "fixed_0_1_pol",
+      chainId: POLYGON_CHAIN_ID,
+      status: "pending",
+    });
+
+    el("shopMsg").textContent = "Submitted. Waiting for confirmation...";
+    const receipt = await waitForReceipt(txHash);
+    if (receipt?.status !== "0x1") throw new Error("Transaction failed.");
+
+    setMembership({
+      account,
+      txHash,
+      expectedWei: PAY_WEI.toString(),
+      purchasedAt: nowIso(),
+      mode: "fixed_0_1_pol",
+      chainId: POLYGON_CHAIN_ID,
+      status: "confirmed",
+      confirmedAt: nowIso(),
+    });
+
+    el("shopMsg").textContent = "Payment confirmed (0.1 POL).";
+    await refreshMembershipUI();
   } catch (e) {
     el("shopMsg").textContent = e?.message || String(e);
-  } finally {
-    btnPay.disabled = old ? true : !account;
   }
 };
 
