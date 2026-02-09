@@ -44,7 +44,7 @@
         <div class="logo"><span>EV</span></div>
         <div>
           <div style="font-weight:800;font-size:18px">EryVanta</div>
-          <div class="muted" style="font-size:12px">Polygon (POL) — pay ≈ $0.10 in POL</div>
+          <div class="muted" style="font-size:12px">Polygon (POL) — Pay fixed 1 POL (Test)</div>
         </div>
       </div>
 
@@ -64,7 +64,7 @@
       <div class="card">
         <div id="view-home" class="view active">
           <div class="row">
-            <button id="btnConnect">Connect + Sign</button>
+            <button id="btnConnect">Connect</button>
             <button id="btnFixRpc" title="Update Polygon RPC in MetaMask">Fix Polygon RPC</button>
             <button id="btnLogout" disabled>Logout</button>
           </div>
@@ -78,8 +78,8 @@
           </div>
 
           <div class="hint">
-            اگر MetaMask “Max fee” غیرعادی نشون داد، معمولاً مشکل از RPC / تخمین گس هست.
-            دکمه <b>Fix Polygon RPC</b> رو بزن یا RPC شبکه Polygon داخل MetaMask رو عوض کن.
+            اگر MetaMask پنجره‌ی تایید را دیر باز کرد، معمولاً مشکل از RPC شبکه داخل MetaMask است.
+            دکمه <b>Fix Polygon RPC</b> را بزن و داخل MetaMask تایید کن.
           </div>
         </div>
 
@@ -87,10 +87,10 @@
           <div class="row" style="justify-content:space-between">
             <div>
               <div style="font-weight:800">Checkout</div>
-              <div class="muted" style="font-size:12px">Pay in native POL (value ≈ $0.10)</div>
+              <div class="muted" style="font-size:12px">Pay native POL (fixed 1 POL)</div>
             </div>
             <div class="row">
-              <button id="btnQuote">Refresh Quote</button>
+              <button id="btnQuote">Refresh</button>
               <button id="btnPay" disabled>Pay</button>
             </div>
           </div>
@@ -106,7 +106,7 @@
           <div class="msg" id="shopMsg"></div>
 
           <div class="hint">
-            مقدار POL با Chainlink (فید MATIC/USD روی Polygon) محاسبه می‌شود و به خاطر رُند کردن ممکن است کمی بیشتر از 0.10$ شود تا کمتر نشود. :contentReference[oaicite:2]{index=2}
+            این نسخه “نرمال مثل سایت‌ها” است: در پرداخت فقط <code>from/to/value</code> ارسال می‌شود و هیچ fee/gas دستی ندارد.
           </div>
         </div>
 
@@ -118,7 +118,7 @@
             <div class="muted">Verified</div><div id="mVerified">-</div>
           </div>
           <div class="hint">
-            Verify یعنی: به همین آدرس، از همین ولت، دقیقاً همین مقدار wei پرداخت شده و receipt موفق بوده.
+            Verify یعنی: به همین آدرس، از همین ولت، دقیقاً 1 POL پرداخت شده و receipt موفق بوده.
           </div>
         </div>
       </div>
@@ -127,12 +127,11 @@
         <div style="font-weight:800">Config</div>
         <div class="kv">
           <div class="muted">Network</div><div>Polygon Mainnet (ChainId 137 / 0x89)</div>
-          <div class="muted">Oracle</div><div>Chainlink MATIC/USD feed</div>
-          <div class="muted">Mode</div><div>≈ $0.10 in POL</div>
+          <div class="muted">Mode</div><div>Fixed 1 POL (Test)</div>
+          <div class="muted">Merchant</div><div id="merchantCfg">-</div>
         </div>
         <div class="hint">
-          <div>• اگر آدرس گیرنده قرارداد باشه، گس 21000 کافی نیست؛ این کد خودش تشخیص می‌ده.</div>
-          <div>• Selector های ABI ثابت‌اند (مثلاً <code>latestRoundData()</code> = <code>0xfeaf968c</code>). :contentReference[oaicite:3]{index=3}</div>
+          اگر باز هم “Pending request” دیدی، MetaMask را باز کن (ممکن است یک درخواست قبلی هنوز باز مانده باشد).
         </div>
       </div>
     </div>
@@ -140,9 +139,10 @@
 
 <script>
 /* =========================
-   EryVanta — Pay ~$0.10 in POL
-   - Uses Chainlink MATIC/USD feed on Polygon to convert USD->POL
-   - Sends native POL transfer to MERCHANT_ADDRESS
+   EryVanta — NORMAL payment (fixed 1 POL)
+   - No manual gas/fee/nonce
+   - MetaMask chooses best fees
+   - RPC only for verify/fallback reads
 ========================= */
 
 const el = (id) => document.getElementById(id);
@@ -150,23 +150,13 @@ const el = (id) => document.getElementById(id);
 const APP_NAME = "EryVanta";
 const POLYGON_CHAIN_ID = "0x89"; // 137
 
-// Receiver (change if you want)
 const MERCHANT_ADDRESS = "0x03a6BC48ED8733Cc700AE49657931243f078a994";
 
-// Target: $0.10 (10 cents)
-const USD_TARGET_CENTS = 10n;
+// EXACT 1 POL (1e18 wei)
+const ONE_POL_WEI_HEX = "0xde0b6b3a7640000";
+const ONE_POL_WEI = 1000000000000000000n;
 
-// Chainlink price feed on Polygon for MATIC/USD (used as POL/USD equivalent on PoS chain)
-// Address shown as "Chainlink: MATIC/USD Price Feed" on Polygonscan
-const CHAINLINK_MATIC_USD_FEED = "0xAB594600376Ec9fD91F8e885dADF0CE036862dE0";
-
-// Function selectors (4 bytes)
-// decimals()      => 0x313ce567
-// latestRoundData()=> 0xfeaf968c
-const SEL_DECIMALS = "0x313ce567";
-const SEL_LATEST_ROUND_DATA = "0xfeaf968c";
-
-// ChainList-style RPC candidates (HTTPS)
+// RPC candidates (reads/verify only)
 const POLYGON_RPC_CANDIDATES = [
   "https://polygon-bor-rpc.publicnode.com",
   "https://rpc.ankr.com/polygon",
@@ -200,48 +190,19 @@ function setSessionMsg(msg = "") {
   if (node) node.textContent = msg;
 }
 
-function toHex(bigint) {
-  if (bigint < 0n) throw new Error("Negative BigInt not supported");
-  return "0x" + bigint.toString(16);
-}
-
-function hexToBigInt(hex) {
-  if (!hex || hex === "0x") return 0n;
-  return BigInt(hex);
-}
-
-// parse int256 (two's complement)
-function hexToSignedBigInt32Bytes(hex32) {
-  // expects 0x + 64 hex chars
-  const x = BigInt(hex32);
-  const TWO_255 = 1n << 255n;
-  const TWO_256 = 1n << 256n;
-  return (x >= TWO_255) ? (x - TWO_256) : x;
-}
-
-function formatPolFromWei(weiBig, decimalsToShow = 6) {
-  const base = 10n ** 18n;
-  const whole = weiBig / base;
-  const fracFull = (weiBig % base).toString().padStart(18, "0");
-  const frac = fracFull.slice(0, decimalsToShow);
-  return `${whole}.${frac}`;
-}
-
-function formatUsdFromPriceRaw(priceRaw, priceDecimals, decimalsToShow = 6) {
-  const base = 10n ** BigInt(priceDecimals);
-  const whole = priceRaw / base;
-  const fracFull = (priceRaw % base).toString().padStart(Number(priceDecimals), "0");
-  const frac = fracFull.slice(0, decimalsToShow);
-  return `${whole}.${frac}`;
-}
-
-function centsToUsdString(cents) {
-  const whole = cents / 100n;
-  const frac = (cents % 100n).toString().padStart(2, "0");
-  return `${whole}.${frac}`;
-}
-
 function nowIso() { return new Date().toISOString(); }
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+function formatPolFromWeiHex(weiHex) {
+  const wei = BigInt(weiHex);
+  const base = 10n ** 18n;
+  const whole = wei / base;
+  const frac = (wei % base).toString().padStart(18, "0").slice(0, 6);
+  return `${whole}.${frac}`;
+}
+
+function isUserRejected(err) { return err?.code === 4001; }
+function isPendingRequest(err) { return err?.code === -32002; }
 
 /* -----------------------
    Provider (MetaMask)
@@ -257,10 +218,8 @@ async function getChainIdWallet() {
 }
 
 /* -----------------------
-   RPC auto-failover layer
+   RPC failover (reads only)
 ------------------------ */
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
 async function rpcFetch(url, method, params = [], timeoutMs = 6500) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -291,7 +250,7 @@ function getCachedRpc() {
   try {
     const x = JSON.parse(localStorage.getItem("eryvanta_polygon_rpc") || "null");
     if (!x || !x.url || !x.ts) return null;
-    if (Date.now() - x.ts > 30 * 60 * 1000) return null; // 30 min
+    if (Date.now() - x.ts > 30 * 60 * 1000) return null;
     return x.url;
   } catch { return null; }
 }
@@ -310,9 +269,9 @@ async function pickHealthyPolygonRpc() {
       activeRpc = url;
       cacheRpc(activeRpc);
       return activeRpc;
-    } catch { /* try next */ }
+    } catch {}
   }
-  throw new Error("هیچ RPC سالمی برای Polygon پیدا نشد. دوباره تلاش کن.");
+  throw new Error("هیچ RPC سالمی برای Polygon پیدا نشد.");
 }
 
 async function rpcRequestPolygon(method, params = []) {
@@ -325,54 +284,12 @@ async function rpcRequestPolygon(method, params = []) {
     if (tried.has(url)) continue;
     tried.add(url);
     try {
-      const out = await rpcFetch(url, method, params, 7500);
+      const out = await rpcFetch(url, method, params, 9000);
       if (url !== activeRpc) { activeRpc = url; cacheRpc(activeRpc); }
       return out;
-    } catch { /* try next */ }
+    } catch {}
   }
   throw new Error("Polygon RPC روی همه endpoint ها fail شد.");
-}
-
-async function ethCall(to, data) {
-  return rpcRequestPolygon("eth_call", [{ to, data }, "latest"]);
-}
-
-/* -----------------------
-   Chainlink price: POL/USD (via MATIC/USD feed)
------------------------- */
-function sliceWord(data, wordIndex) {
-  // data is 0x + (n*64 hex chars)
-  const start = 2 + wordIndex * 64;
-  const end = start + 64;
-  return "0x" + data.slice(start, end);
-}
-
-async function getPolUsdFromChainlink() {
-  await pickHealthyPolygonRpc();
-
-  const decHex = await ethCall(CHAINLINK_MATIC_USD_FEED, SEL_DECIMALS);
-  const priceDecimals = Number(hexToBigInt(decHex));
-
-  const r = await ethCall(CHAINLINK_MATIC_USD_FEED, SEL_LATEST_ROUND_DATA);
-
-  // latestRoundData(): (roundId, answer, startedAt, updatedAt, answeredInRound)
-  const answerHex = sliceWord(r, 1);
-  const updatedAtHex = sliceWord(r, 3);
-
-  const answerSigned = hexToSignedBigInt32Bytes(answerHex);
-  if (answerSigned <= 0n) throw new Error("Oracle returned invalid price.");
-
-  const priceRaw = answerSigned; // USD per 1 POL * 10^decimals
-  const updatedAt = Number(hexToBigInt(updatedAtHex)); // seconds
-
-  return { priceRaw, priceDecimals, updatedAt };
-}
-
-function calcPayWeiForUsdCents(usdCents, priceRaw, priceDecimals) {
-  // payWei = ceil( (usdCents/100 USD) * 10^priceDecimals * 1e18 / priceRaw )
-  const numerator = usdCents * (10n ** BigInt(priceDecimals)) * (10n ** 18n);
-  const denom = priceRaw * 100n;
-  return (numerator + denom - 1n) / denom; // ceil division
 }
 
 /* -----------------------
@@ -383,8 +300,6 @@ async function switchToPolygon() {
   const current = await getChainIdWallet().catch(() => null);
   if (current && String(current).toLowerCase() === POLYGON_CHAIN_ID) return;
 
-  const bestRpc = await pickHealthyPolygonRpc();
-
   try {
     await provider.request({
       method: "wallet_switchEthereumChain",
@@ -392,6 +307,8 @@ async function switchToPolygon() {
     });
   } catch (err) {
     if (err && err.code === 4902) {
+      let bestRpc = POLYGON_RPC_CANDIDATES[0];
+      try { bestRpc = await pickHealthyPolygonRpc(); } catch {}
       await provider.request({
         method: "wallet_addEthereumChain",
         params: [{
@@ -408,32 +325,35 @@ async function switchToPolygon() {
   }
 }
 
-/* -----------------------
-   Session + membership local storage
------------------------- */
-function getSession() {
-  try { return JSON.parse(localStorage.getItem("eryvanta_session") || "null"); }
-  catch { return null; }
-}
-function setSession(s) { localStorage.setItem("eryvanta_session", JSON.stringify(s)); }
-function clearSession() { localStorage.removeItem("eryvanta_session"); }
+async function fixMetamaskPolygonRpc() {
+  const provider = await requireProvider();
+  let bestRpc = POLYGON_RPC_CANDIDATES[0];
+  try { bestRpc = await pickHealthyPolygonRpc(); } catch {}
 
+  await provider.request({
+    method: "wallet_addEthereumChain",
+    params: [{
+      chainId: POLYGON_CHAIN_ID,
+      chainName: "Polygon Mainnet",
+      rpcUrls: [bestRpc, ...POLYGON_RPC_CANDIDATES.filter((x) => x !== bestRpc)],
+      nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
+      blockExplorerUrls: ["https://polygonscan.com/"],
+    }],
+  });
+}
+
+/* -----------------------
+   Membership storage
+------------------------ */
 function getMembership() {
   try { return JSON.parse(localStorage.getItem("eryvanta_membership") || "null"); }
   catch { return null; }
 }
 function setMembership(m) { localStorage.setItem("eryvanta_membership", JSON.stringify(m)); }
-
-function isSignedIn() {
-  const s = getSession();
-  return Boolean(
-    s && s.account && s.sig && s.message &&
-    account && s.account.toLowerCase() === account.toLowerCase()
-  );
-}
+function clearMembership() { localStorage.removeItem("eryvanta_membership"); }
 
 /* -----------------------
-   UI helpers
+   UI
 ------------------------ */
 function setLoggedOutUI() {
   setStatus("Disconnected", "off");
@@ -450,27 +370,23 @@ async function refreshWalletUI() {
 
   el("addr").textContent = account;
   btnLogout.disabled = false;
+  btnPay.disabled = false;
 
-  // chain id (prefer wallet)
-  try {
-    el("chain").textContent = await getChainIdWallet();
-  } catch {
-    try { el("chain").textContent = await rpcRequestPolygon("eth_chainId", []); }
-    catch { el("chain").textContent = "?"; }
-  }
+  try { el("chain").textContent = await getChainIdWallet(); }
+  catch { el("chain").textContent = "?"; }
 
-  // balance (prefer wallet; fallback to our RPC)
   try {
     const balHex = await window.ethereum.request({
       method: "eth_getBalance",
       params: [account, "latest"],
     });
-    el("bal").textContent = formatPolFromWei(hexToBigInt(balHex));
+    el("bal").textContent = formatPolFromWeiHex(balHex);
   } catch {
-    setSessionMsg("RPC متامسک مشکل دارد. Fix Polygon RPC را بزن یا RPC شبکه Polygon را در MetaMask تغییر بده.");
     try {
+      await pickHealthyPolygonRpc();
       const balHex = await rpcRequestPolygon("eth_getBalance", [account, "latest"]);
-      el("bal").textContent = formatPolFromWei(hexToBigInt(balHex));
+      el("bal").textContent = formatPolFromWeiHex(balHex);
+      setSessionMsg("اگر MetaMask کند/قفل شد، Fix Polygon RPC را بزن و در MetaMask تایید کن.");
     } catch {
       el("bal").textContent = "?";
     }
@@ -481,64 +397,55 @@ async function refreshWalletUI() {
 }
 
 /* -----------------------
-   Quote (≈ $0.10 in POL)
+   Quote (fixed 1 POL)
 ------------------------ */
 async function refreshQuote() {
   el("shopMsg").textContent = "";
   el("receiver").textContent = MERCHANT_ADDRESS;
 
-  try {
-    await pickHealthyPolygonRpc();
+  lastQuote = {
+    wei: ONE_POL_WEI.toString(),
+    updatedAt: Math.floor(Date.now() / 1000),
+    mode: "fixed_1_pol",
+  };
 
-    const { priceRaw, priceDecimals, updatedAt } = await getPolUsdFromChainlink();
+  el("price").textContent = "Fixed 1 POL";
+  el("amountPol").textContent = "1.000000 POL";
+  el("oraclePrice").textContent = "N/A";
+  el("updatedAt").textContent = "now";
 
-    // Basic staleness check (2 hours)
-    const nowSec = Math.floor(Date.now() / 1000);
-    if (updatedAt === 0 || (nowSec - updatedAt) > 2 * 60 * 60) {
-      throw new Error("Oracle price seems stale. Try again later.");
-    }
-
-    const payWei = calcPayWeiForUsdCents(USD_TARGET_CENTS, priceRaw, priceDecimals);
-
-    lastQuote = {
-      wei: payWei.toString(),
-      usdCents: USD_TARGET_CENTS.toString(),
-      priceRaw: priceRaw.toString(),
-      priceDecimals,
-      updatedAt,
-      mode: "usd_oracle_chainlink",
-    };
-
-    el("price").textContent = `≈ $${centsToUsdString(USD_TARGET_CENTS)}`;
-    el("amountPol").textContent = `${formatPolFromWei(payWei)} POL`;
-    el("oraclePrice").textContent = `$${formatUsdFromPriceRaw(priceRaw, priceDecimals)} / POL`;
-    el("updatedAt").textContent = new Date(updatedAt * 1000).toISOString();
-
-    btnPay.disabled = !isSignedIn();
-  } catch (e) {
-    btnPay.disabled = true;
-    el("price").textContent = "-";
-    el("amountPol").textContent = "-";
-    el("oraclePrice").textContent = "-";
-    el("updatedAt").textContent = "-";
-    el("shopMsg").textContent = e?.message || String(e);
-  }
+  btnPay.disabled = !account;
 }
 
 /* -----------------------
-   Tx verify helpers
+   Receipt wait (wallet first, RPC fallback)
 ------------------------ */
-async function waitForReceipt(txHash, timeoutMs = 120000) {
+async function waitForReceipt(txHash, timeoutMs = 300000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const r = await rpcRequestPolygon("eth_getTransactionReceipt", [txHash]);
-    if (r) return r;
-    await sleep(2500);
+    // wallet
+    try {
+      const r = await window.ethereum.request({
+        method: "eth_getTransactionReceipt",
+        params: [txHash],
+      });
+      if (r) return r;
+    } catch {}
+
+    // rpc fallback
+    try {
+      await pickHealthyPolygonRpc();
+      const r2 = await rpcRequestPolygon("eth_getTransactionReceipt", [txHash]);
+      if (r2) return r2;
+    } catch {}
+
+    await sleep(2000);
   }
   throw new Error("Timed out waiting for confirmation.");
 }
 
 async function verifyTx(txHash, expectedWeiStr) {
+  await pickHealthyPolygonRpc();
   const tx = await rpcRequestPolygon("eth_getTransactionByHash", [txHash]);
   if (!tx) return { ok: false, reason: "Transaction not found." };
 
@@ -576,7 +483,6 @@ async function refreshMembershipUI() {
   }
 
   try {
-    await pickHealthyPolygonRpc();
     const v = await verifyTx(m.txHash, m.expectedWei);
     el("mStatus").textContent = v.ok ? "Active" : "Inactive";
     el("mVerified").textContent = v.ok ? "Yes" : `No (${v.reason})`;
@@ -605,49 +511,93 @@ function setupTabs() {
 }
 
 /* -----------------------
-   Connect + Sign
+   Connect + Pay (NORMAL)
 ------------------------ */
 async function connectWallet() {
   await requireProvider();
-  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  let accounts;
+  try {
+    accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  } catch (err) {
+    if (isPendingRequest(err)) throw new Error("یک درخواست MetaMask باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
+    throw err;
+  }
+
   account = accounts?.[0] || null;
   if (!account) throw new Error("هیچ اکانتی انتخاب نشد.");
   await refreshWalletUI();
 }
 
-async function signIn() {
-  const provider = await requireProvider();
-  const message = [
-    `Sign in to ${APP_NAME}`,
-    `Address: ${account}`,
-    `Time: ${nowIso()}`,
-  ].join("\n");
+async function sendPaymentNormal() {
+  if (!account) throw new Error("اول کیف پول را وصل کن.");
 
-  const sig = await provider.request({
-    method: "personal_sign",
-    params: [message, account],
+  await switchToPolygon();
+  await refreshQuote();
+  const expectedWeiStr = lastQuote?.wei;
+  if (!expectedWeiStr) throw new Error("Quote available نیست.");
+
+  // gentle hint if popup doesn’t show quickly
+  const hintTimer = setTimeout(() => {
+    el("shopMsg").textContent = "اگر پنجره MetaMask باز نشد، خود MetaMask را باز کن (ممکن است یک درخواست Pending داشته باشی).";
+  }, 12000);
+
+  let txHash;
+  try {
+    el("shopMsg").textContent = "Confirm in MetaMask...";
+    txHash = await window.ethereum.request({
+      method: "eth_sendTransaction",
+      params: [{
+        from: account,
+        to: MERCHANT_ADDRESS,
+        value: ONE_POL_WEI_HEX, // EXACT 1 POL
+        // IMPORTANT: no gas / no fees / no nonce
+      }],
+    });
+  } catch (err) {
+    if (isUserRejected(err)) throw new Error("Transaction rejected in wallet.");
+    if (isPendingRequest(err)) throw new Error("یک درخواست MetaMask باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
+    throw err;
+  } finally {
+    clearTimeout(hintTimer);
+  }
+
+  setMembership({
+    account,
+    txHash,
+    expectedWei: expectedWeiStr,
+    purchasedAt: nowIso(),
+    mode: "fixed_1_pol",
+    chainId: POLYGON_CHAIN_ID,
+    status: "pending",
   });
 
-  setSession({ account, sig, message });
+  el("shopMsg").textContent = "Submitted. Waiting for confirmation...";
+
+  const receipt = await waitForReceipt(txHash);
+  if (receipt?.status !== "0x1") throw new Error("Transaction failed.");
+
+  setMembership({
+    account,
+    txHash,
+    expectedWei: expectedWeiStr,
+    purchasedAt: nowIso(),
+    mode: "fixed_1_pol",
+    chainId: POLYGON_CHAIN_ID,
+    status: "confirmed",
+    confirmedAt: nowIso(),
+  });
+
+  el("shopMsg").textContent = "Payment confirmed (1 POL).";
+  await refreshMembershipUI();
 }
 
 /* -----------------------
-   Safer tx params (avoid crazy max fee)
------------------------- */
-async function isContractAddress(addr) {
-  const code = await rpcRequestPolygon("eth_getCode", [addr, "latest"]);
-  return code && code !== "0x";
-}
-function minBigInt(a, b) { return a < b ? a : b; }
-
-/* -----------------------
-   Button handlers
+   Handlers
 ------------------------ */
 btnConnect.onclick = async () => {
   try {
     setSessionMsg("");
     await connectWallet();
-    if (!isSignedIn()) await signIn();
     activateTab("shop");
     await refreshQuote();
   } catch (e) {
@@ -655,99 +605,36 @@ btnConnect.onclick = async () => {
   }
 };
 
-if (btnFixRpc) {
-  btnFixRpc.onclick = async () => {
-    try {
-      setSessionMsg("");
-      const provider = await requireProvider();
-      const bestRpc = await pickHealthyPolygonRpc();
-
-      await provider.request({
-        method: "wallet_addEthereumChain",
-        params: [{
-          chainId: POLYGON_CHAIN_ID,
-          chainName: "Polygon Mainnet",
-          rpcUrls: [bestRpc, ...POLYGON_RPC_CANDIDATES.filter((x) => x !== bestRpc)],
-          nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
-          blockExplorerUrls: ["https://polygonscan.com/"],
-        }],
-      });
-
-      setSessionMsg("در MetaMask درخواست آپدیت Polygon ارسال شد. Approve کن و دوباره تست کن.");
-    } catch (e) {
-      setSessionMsg(e?.message || String(e));
-    }
-  };
-}
+btnFixRpc.onclick = async () => {
+  try {
+    setSessionMsg("");
+    await fixMetamaskPolygonRpc();
+    setSessionMsg("در MetaMask درخواست آپدیت Polygon ارسال شد. Approve کن و دوباره تست کن.");
+  } catch (e) {
+    setSessionMsg(e?.message || String(e));
+  }
+};
 
 btnLogout.onclick = () => {
-  clearSession();
+  account = null;
+  clearMembership();
   btnPay.disabled = true;
-  el("shopMsg").textContent = "Signed out.";
+  el("shopMsg").textContent = "Disconnected.";
+  setLoggedOutUI();
 };
 
 btnQuote.onclick = async () => { await refreshQuote(); };
 
 btnPay.onclick = async () => {
+  const old = btnPay.disabled;
+  btnPay.disabled = true;
   try {
     el("shopMsg").textContent = "";
-
-    if (!account) throw new Error("اول کیف پول را وصل کن.");
-    if (!isSignedIn()) throw new Error("اول Sign in (signature) انجام بده.");
-
-    await pickHealthyPolygonRpc();
-    await switchToPolygon();
-
-    // Fresh quote right before pay
-    await refreshQuote();
-    if (!lastQuote) throw new Error("Quote available نیست.");
-
-    const expectedWei = BigInt(lastQuote.wei);
-
-    // Cap gas price to avoid MetaMask showing crazy "max fee"
-    const netGasPrice = BigInt(await rpcRequestPolygon("eth_gasPrice", []));
-    const GAS_PRICE_CAP = 150n * 10n ** 9n; // 150 gwei cap
-    const gasPrice = minBigInt(netGasPrice, GAS_PRICE_CAP);
-
-    const toIsContract = await isContractAddress(MERCHANT_ADDRESS);
-
-    const txParams = {
-      from: account,
-      to: MERCHANT_ADDRESS,
-      value: toHex(expectedWei),
-      gasPrice: toHex(gasPrice),
-      ...(toIsContract ? {} : { gas: toHex(21000n) }),
-    };
-
-    el("shopMsg").textContent = "Opening MetaMask...";
-    const txHash = await window.ethereum.request({
-      method: "eth_sendTransaction",
-      params: [txParams],
-    });
-
-    el("shopMsg").textContent = "Waiting for confirmation...";
-    await waitForReceipt(txHash);
-
-    setMembership({
-      account,
-      txHash,
-      expectedWei: expectedWei.toString(),
-      purchasedAt: nowIso(),
-      mode: "usd_0_10_chainlink",
-      chainId: POLYGON_CHAIN_ID,
-      oracle: {
-        feed: CHAINLINK_MATIC_USD_FEED,
-        updatedAt: lastQuote.updatedAt,
-        priceRaw: lastQuote.priceRaw,
-        priceDecimals: lastQuote.priceDecimals,
-        usdCents: lastQuote.usdCents,
-      }
-    });
-
-    el("shopMsg").textContent = "Payment confirmed (≈ $0.10 in POL).";
-    await refreshMembershipUI();
+    await sendPaymentNormal();
   } catch (e) {
     el("shopMsg").textContent = e?.message || String(e);
+  } finally {
+    btnPay.disabled = old ? true : !account;
   }
 };
 
@@ -757,11 +644,9 @@ btnPay.onclick = async () => {
 (async function init() {
   setupTabs();
   el("receiver").textContent = MERCHANT_ADDRESS;
+  el("merchantCfg").textContent = MERCHANT_ADDRESS;
   setStatus("Disconnected", "off");
   setSessionMsg("");
-
-  // Pre-pick a healthy RPC silently
-  pickHealthyPolygonRpc().catch(() => {});
 
   if (!window.ethereum) {
     setLoggedOutUI();
@@ -778,7 +663,6 @@ btnPay.onclick = async () => {
     if (account) refreshWalletUI();
   });
 
-  // silent reconnect (no popup)
   const accs = await window.ethereum.request({ method: "eth_accounts" });
   account = accs?.[0] || null;
   if (account) await refreshWalletUI();
