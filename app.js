@@ -535,4 +535,4 @@ btnPay.onclick = async () => {
   account = accs?.[0] || null;
   if (account) await refreshWalletUI();
   else setLoggedOutUI();
-})();
+ })();
