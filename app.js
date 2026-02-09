@@ -19,9 +19,9 @@ const POLYGON_RPC_CANDIDATES = [
   "https://polygon-public.nodies.app",
 ];
 
-// --- Tx robustness knobs ---
-const TX_SEND_TIMEOUT_MS = 45000;     // prevents UI hang on wallet send
-const TX_CONFIRM_TIMEOUT_MS = 240000; // confirmation wait window
+// --- Robustness knobs ---
+const TX_SEND_TIMEOUT_MS = 60000;     // more room for MetaMask UI
+const TX_CONFIRM_TIMEOUT_MS = 300000; // 5 min
 
 const btnConnect = el("btnConnect");
 const btnFixRpc = el("btnFixRpc"); // optional (but recommended)
@@ -183,7 +183,7 @@ async function rpcRequestPolygon(method, params = []) {
     if (tried.has(url)) continue;
     tried.add(url);
     try {
-      const out = await rpcFetch(url, method, params, 7500);
+      const out = await rpcFetch(url, method, params, 9000);
       if (url !== activeRpc) {
         activeRpc = url;
         cacheRpc(activeRpc);
@@ -217,7 +217,7 @@ async function autoFixMetamaskPolygonRpc() {
         },
       ],
     }),
-    20000,
+    25000,
     "wallet_addEthereumChain"
   );
 }
@@ -258,49 +258,34 @@ async function switchToPolygon() {
 }
 
 /* -----------------------
-   Build tx params via healthy RPC
-   (helps avoid MetaMask hanging due to bad RPC)
+   FREE FEES tx params:
+   - no gasPrice / maxFeePerGas / maxPriorityFeePerGas set
+   - MetaMask chooses best fees automatically
+   - optional: set only "gas" from healthy RPC to reduce MetaMask estimation hangs
 ------------------------ */
-async function buildNativeTransferTxParams({ from, to, valueWei }) {
+async function buildTxParamsFreeFees({ from, to, valueWei }) {
   await pickHealthyPolygonRpc();
 
-  // nonce (pending to avoid collisions)
-  const nonceHex = await rpcRequestPolygon("eth_getTransactionCount", [from, "pending"]);
-
-  // gas estimate (+20% margin)
-  const gasHex = await rpcRequestPolygon("eth_estimateGas", [
-    { from, to, value: toHex(valueWei) },
-  ]);
-  const gas = (BigInt(gasHex) * 120n) / 100n;
-
-  // fees: try EIP-1559 fields; fallback to legacy gasPrice
-  let feeFields = {};
+  let gasHex = null;
   try {
-    const prioHex = await rpcRequestPolygon("eth_maxPriorityFeePerGas", []);
-    const gasPriceHex = await rpcRequestPolygon("eth_gasPrice", []);
-    const prio = BigInt(prioHex);
-    const gasPrice = BigInt(gasPriceHex);
-
-    // robust: maxFee = 2*gasPrice + priority
-    const maxFee = gasPrice * 2n + prio;
-
-    feeFields = {
-      maxPriorityFeePerGas: toHex(prio),
-      maxFeePerGas: toHex(maxFee),
-    };
+    gasHex = await rpcRequestPolygon("eth_estimateGas", [{ from, to, value: toHex(valueWei) }]);
   } catch {
-    const gasPriceHex = await rpcRequestPolygon("eth_gasPrice", []);
-    feeFields = { gasPrice: gasPriceHex };
+    gasHex = null;
   }
 
-  return {
+  const tx = {
     from,
     to,
     value: toHex(valueWei),
-    nonce: nonceHex,
-    gas: toHex(gas),
-    ...feeFields,
   };
+
+  if (gasHex) {
+    const gas = (BigInt(gasHex) * 120n) / 100n; // +20% margin
+    tx.gas = toHex(gas);
+  }
+
+  // IMPORTANT: do NOT set gasPrice/maxFee/maxPriority => MetaMask auto
+  return tx;
 }
 
 /* -----------------------
@@ -375,12 +360,10 @@ async function refreshWalletUI() {
 
   // balance (prefer wallet; fallback to our RPC)
   try {
-    const balHex = await walletReq("eth_getBalance", [account, "latest"], 12000);
+    const balHex = await walletReq("eth_getBalance", [account, "latest"], 15000);
     el("bal").textContent = formatEthFromWeiHex(balHex);
   } catch {
-    setSessionMsg(
-      "RPC متامسک مشکل دارد. Fix Polygon RPC را بزن یا RPC شبکه Polygon را در MetaMask تغییر بده."
-    );
+    setSessionMsg("RPC متامسک مشکل دارد. Fix Polygon RPC را بزن یا RPC شبکه Polygon را در MetaMask تغییر بده.");
     try {
       const balHex = await rpcRequestPolygon("eth_getBalance", [account, "latest"]);
       el("bal").textContent = formatEthFromWeiHex(balHex);
@@ -429,7 +412,7 @@ async function refreshQuote() {
 async function waitForReceiptSmart(txHash, timeoutMs = TX_CONFIRM_TIMEOUT_MS) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    // 1) wallet provider (sometimes faster)
+    // 1) wallet provider
     try {
       const r1 = await walletReq("eth_getTransactionReceipt", [txHash], 8000).catch(() => null);
       if (r1) return r1;
@@ -519,7 +502,7 @@ async function connectWallet() {
   await requireProvider();
   let accounts;
   try {
-    accounts = await walletReq("eth_requestAccounts", [], 45000);
+    accounts = await walletReq("eth_requestAccounts", [], 60000);
   } catch (err) {
     if (isPendingRequest(err)) {
       throw new Error("یک درخواست متامسک باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
@@ -591,35 +574,31 @@ btnPay.onclick = async () => {
     if (!account) throw new Error("Connect wallet first.");
     if (!isSignedIn()) throw new Error("Sign in first (signature).");
 
-    // Ensure we have a healthy RPC and wallet is on Polygon
     el("shopMsg").textContent = "Preparing network...";
     await pickHealthyPolygonRpc();
     await switchToPolygon();
 
-    // Heal MetaMask's Polygon RPC config automatically (prevents hanging)
+    // Heal MetaMask Polygon RPC (reduces hangs)
     try {
-      el("shopMsg").textContent = "Fixing Polygon RPC in wallet...";
+      el("shopMsg").textContent = "Fixing wallet Polygon RPC...";
       await autoFixMetamaskPolygonRpc();
-    } catch (err) {
-      // If user rejects or it fails, still try to proceed
+    } catch {
+      // ignore
     }
 
-    // Ensure quote exists
     await refreshQuote();
     if (!lastQuote) throw new Error("Quote not available.");
 
     const expectedWei = FIXED_PAY_WEI;
 
-    // Build tx params using our healthy RPC (nonce/gas/fee)
-    el("shopMsg").textContent = "Building transaction...";
-    const txParams = await buildNativeTransferTxParams({
+    // FREE FEES: MetaMask decides best fees
+    el("shopMsg").textContent = "Opening MetaMask...";
+    const txParams = await buildTxParamsFreeFees({
       from: account,
       to: MERCHANT_ADDRESS,
       valueWei: expectedWei,
     });
 
-    // Send tx (timeout prevents UI lock)
-    el("shopMsg").textContent = "Opening MetaMask...";
     let txHash;
     try {
       txHash = await withTimeout(
@@ -632,12 +611,23 @@ btnPay.onclick = async () => {
       );
     } catch (err) {
       if (isUserRejected(err)) throw new Error("Transaction rejected in wallet.");
-      if (isPendingRequest(err))
-        throw new Error("یک درخواست متامسک باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
+      if (isPendingRequest(err)) throw new Error("یک درخواست متامسک باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
       throw err;
     }
 
-    el("shopMsg").textContent = "Waiting for confirmation...";
+    // Store pending immediately (so UI won't look stuck)
+    setMembership({
+      account,
+      txHash,
+      expectedWei: expectedWei.toString(),
+      purchasedAt: nowIso(),
+      mode: "fixed_1_pol",
+      chainId: POLYGON_CHAIN_ID,
+      status: "pending",
+    });
+
+    el("shopMsg").textContent = "Submitted. Waiting for confirmation...";
+
     const receipt = await waitForReceiptSmart(txHash);
 
     if (receipt?.status !== "0x1") throw new Error("Transaction failed.");
@@ -649,6 +639,8 @@ btnPay.onclick = async () => {
       purchasedAt: nowIso(),
       mode: "fixed_1_pol",
       chainId: POLYGON_CHAIN_ID,
+      status: "confirmed",
+      confirmedAt: nowIso(),
     });
 
     el("shopMsg").textContent = "Payment confirmed (1 POL).";
@@ -669,7 +661,7 @@ btnPay.onclick = async () => {
   setStatus("Disconnected", "off");
   setSessionMsg("");
 
-  // Pre-pick a healthy RPC in background (non-blocking)
+  // Pre-pick a healthy RPC in background
   pickHealthyPolygonRpc().catch(() => {});
 
   if (!window.ethereum) {
