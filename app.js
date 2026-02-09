@@ -8,7 +8,7 @@ const POLYGON_CHAIN_ID = "0x89";
 // Your receiving address
 const MERCHANT_ADDRESS = "0x03a6BC48ED8733Cc700AE49657931243f078a994";
 
-// Chainlink MATIC/USD feed on Polygon PoS (commonly used for native token pricing)
+// Chainlink MATIC/USD feed on Polygon PoS
 const CHAINLINK_POL_USD_FEED = "0xAB594600376Ec9fD91F8e885dADF0CE036862dE0";
 
 // $1.00
@@ -113,7 +113,11 @@ async function switchToPolygon() {
           {
             chainId: POLYGON_CHAIN_ID,
             chainName: "Polygon Mainnet",
-            rpcUrls: ["https://polygon-rpc.com"],
+            rpcUrls: [
+              "https://polygon-rpc.com",
+              "https://rpc.ankr.com/polygon",
+              "https://polygon-bor-rpc.publicnode.com",
+            ],
             nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
             blockExplorerUrls: ["https://polygonscan.com/"],
           },
@@ -201,9 +205,7 @@ function computeWeiForUsdCents(usdCents, priceAnswer, priceDecimals) {
   const dec = 10n ** BigInt(priceDecimals);
   const numerator = BigInt(usdCents) * dec * (10n ** 18n);
   const denom = 100n * BigInt(priceAnswer);
-
-  // round up
-  return (numerator + denom - 1n) / denom;
+  return (numerator + denom - 1n) / denom; // round up
 }
 
 function formatPrice(answer, decimals) {
@@ -239,7 +241,6 @@ async function refreshQuote() {
 
     const { answer, decimals, updatedAt } = await getChainlinkPriceUsdPerPol();
 
-    // staleness check: 30 minutes
     const ageMin = Math.floor((Date.now() / 1000 - updatedAt) / 60);
     if (ageMin > 30) throw new Error("Price feed looks stale. Please try again.");
 
@@ -403,7 +404,6 @@ btnPay.onclick = async () => {
 
     await switchToPolygon();
 
-    // refresh quote right before payment
     await refreshQuote();
     if (!lastQuote) throw new Error("Quote not available.");
 
@@ -464,7 +464,7 @@ btnPay.onclick = async () => {
     if (account) refreshWalletUI();
   });
 
-  // IMPORTANT: do not trust localStorage for "connected" state
+  // Do not trust localStorage for "connected" state
   const accs = await window.ethereum.request({ method: "eth_accounts" });
   account = accs?.[0] || null;
   if (account) await refreshWalletUI();
