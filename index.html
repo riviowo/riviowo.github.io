@@ -1,44 +1,213 @@
 <!doctype html>
-<html lang="en" dir="ltr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>EryVanta</title>
-  <style>
-    body { font-family: system-ui; margin: 24px; line-height: 1.6; }
-    .card { max-width: 760px; padding: 16px; border: 1px solid #ddd; border-radius: 12px; }
-    button { padding: 10px 14px; border-radius: 10px; border: 1px solid #ccc; cursor: pointer; }
-    code { background: #f5f5f5; padding: 2px 6px; border-radius: 6px; }
-    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    .muted { color: #555; }
-    hr { border: none; border-top: 1px solid #eee; margin: 14px 0; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h2>EryVanta — MetaMask Connect</h2>
-    <p id="status">Status: Disconnected</p>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>EryVanta</title>
 
-    <div class="row">
-      <button id="btnConnect">Connect MetaMask</button>
-      <button id="btnSign" disabled>Sign Message (Login)</button>
-      <button id="btnCopy" disabled>Copy Address</button>
+    <!-- Basic CSP (GitHub Pages can't set headers easily; meta CSP still helps) -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self';
+        script-src 'self';
+        style-src 'self';
+        img-src 'self' data:;
+        connect-src 'self' https: wss:;
+        base-uri 'none';
+        form-action 'none';
+        frame-ancestors 'none';
+      "
+    />
+
+    <style>
+      :root { color-scheme: dark; }
+      body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0b0f17; color:#e7ecf3; }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 18px; }
+      header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding: 10px 0 18px; }
+      .brand { display:flex; align-items:center; gap:10px; }
+      .logo { width:36px; height:36px; border-radius:10px; background: linear-gradient(135deg,#4f8cff,#a855f7); }
+      h1 { font-size: 18px; margin:0; letter-spacing: .3px; }
+      nav { display:flex; gap:10px; flex-wrap: wrap; }
+      .tab { border:1px solid #243147; background:#101a2b; color:#d8e2f0; padding:10px 12px; border-radius:12px; cursor:pointer; }
+      .tab.active { background:#1a2a45; border-color:#3a5686; }
+
+      .grid { display:grid; grid-template-columns: 1.2fr .8fr; gap:14px; }
+      @media (max-width: 880px){ .grid{ grid-template-columns:1fr; } }
+
+      .card { background:#0f1626; border:1px solid #243147; border-radius:16px; padding:14px; }
+      .card h2 { margin:0 0 10px; font-size: 16px; }
+      .muted { color:#9fb0c7; font-size: 13px; }
+      .row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid #1c2740; }
+      .row:last-child { border-bottom:none; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; word-break: break-all; }
+
+      .btn { border:1px solid #2b3d5e; background:#15233b; color:#e7ecf3; padding:10px 12px; border-radius:12px; cursor:pointer; }
+      .btn.primary { background:#2a3f67; border-color:#4367aa; }
+      .btn:disabled { opacity:.55; cursor:not-allowed; }
+
+      .pill { display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border-radius:999px; border:1px solid #243147; background:#0c1321; }
+      .dot { width:10px; height:10px; border-radius:99px; background:#6b7280; }
+      .dot.on { background:#22c55e; }
+      .dot.off { background:#ef4444; }
+
+      .views { margin-top: 10px; }
+      .view { display:none; }
+      .view.active { display:block; }
+
+      .notice { margin-top:10px; padding:10px 12px; border-radius:14px; border:1px dashed #2b3d5e; color:#b7c6dc; background:#0c1321; }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <div class="logo"></div>
+          <div>
+            <h1>EryVanta</h1>
+            <div class="muted">Wallet-based membership demo (Polygon + MetaMask)</div>
+          </div>
+        </div>
+
+        <nav>
+          <button class="tab active" data-tab="home">Home</button>
+          <button class="tab" data-tab="shop">Shop</button>
+          <button class="tab" data-tab="account">Account</button>
+        </nav>
+      </header>
+
+      <div class="grid">
+        <div class="card">
+          <h2>Session</h2>
+
+          <div class="row">
+            <div class="muted">Status</div>
+            <div class="pill">
+              <span id="dot" class="dot"></span>
+              <span id="status">Disconnected</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="muted">Address</div>
+            <div id="addr" class="mono">-</div>
+          </div>
+
+          <div class="row">
+            <div class="muted">Chain</div>
+            <div id="chain" class="mono">-</div>
+          </div>
+
+          <div class="row">
+            <div class="muted">Balance (native)</div>
+            <div id="bal" class="mono">-</div>
+          </div>
+
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+            <button id="btnConnect" class="btn primary">Connect Wallet</button>
+            <button id="btnSign" class="btn" disabled>Sign In (Signature)</button>
+            <button id="btnLogout" class="btn" disabled>Log Out</button>
+          </div>
+
+          <div class="notice">
+            Always verify the <b>recipient address</b> in MetaMask before confirming a payment.
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Quick Info</h2>
+          <div class="muted">
+            This site is hosted on GitHub Pages (static hosting). It does not store usernames/passwords.
+            Your “account” is your wallet address + signature.
+          </div>
+          <div style="height:10px;"></div>
+          <div class="muted">
+            Membership activation is verified by checking the transaction on-chain. On-chain payments are public by design.
+          </div>
+        </div>
+      </div>
+
+      <div class="views">
+        <section id="view-home" class="view active">
+          <div class="card">
+            <h2>Home</h2>
+            <div class="muted">
+              Connect your wallet, sign in, then open the Shop tab to purchase a membership.
+            </div>
+          </div>
+        </section>
+
+        <section id="view-shop" class="view">
+          <div class="card">
+            <h2>Shop</h2>
+
+            <div class="row">
+              <div>
+                <div style="font-weight:600;">Membership</div>
+                <div class="muted">$1.00 (paid in POL on Polygon)</div>
+              </div>
+              <button id="btnQuote" class="btn">Refresh Quote</button>
+            </div>
+
+            <div class="row">
+              <div class="muted">Receiver</div>
+              <div id="receiver" class="mono">-</div>
+            </div>
+
+            <div class="row">
+              <div class="muted">Chainlink Price (USD per POL)</div>
+              <div id="price" class="mono">-</div>
+            </div>
+
+            <div class="row">
+              <div class="muted">Amount to Pay</div>
+              <div id="amountPol" class="mono">-</div>
+            </div>
+
+            <div class="row">
+              <div class="muted">Price Updated</div>
+              <div id="updatedAt" class="mono">-</div>
+            </div>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+              <button id="btnPay" class="btn primary" disabled>Pay with MetaMask</button>
+              <span id="shopMsg" class="muted"></span>
+            </div>
+
+            <div class="notice">
+              If the network is not Polygon, the site will request a network switch to Polygon (chainId 0x89).
+            </div>
+          </div>
+        </section>
+
+        <section id="view-account" class="view">
+          <div class="card">
+            <h2>Account</h2>
+
+            <div class="row">
+              <div class="muted">Membership Status</div>
+              <div id="mStatus" style="font-weight:700;">-</div>
+            </div>
+
+            <div class="row">
+              <div class="muted">Last Payment Tx</div>
+              <div id="mTx" class="mono">-</div>
+            </div>
+
+            <div class="row">
+              <div class="muted">Verified On-Chain</div>
+              <div id="mVerified" style="font-weight:700;">-</div>
+            </div>
+
+            <div class="notice">
+              This demo stores the last successful payment txHash locally, then verifies it on-chain when you revisit.
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
 
-    <hr />
-
-    <div>
-      <div>Address: <code id="addr">-</code></div>
-      <div>Network: <code id="chainName">-</code> (<code id="chain">-</code>)</div>
-      <div>ETH Balance: <code id="bal">-</code></div>
-      <div>Signature: <code id="sig">-</code></div>
-    </div>
-
-    <p class="muted" style="margin-top:14px">
-      Security note: Never ask users for their seed phrase or recovery phrase.
-    </p>
-  </div>
-
-  <script src="./app.js"></script>
-</body>
+    <script src="./app.js"></script>
+  </body>
 </html>
