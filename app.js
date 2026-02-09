@@ -19,6 +19,10 @@ const POLYGON_RPC_CANDIDATES = [
   "https://polygon-public.nodies.app",
 ];
 
+// --- Tx robustness knobs ---
+const TX_SEND_TIMEOUT_MS = 45000;     // prevents UI hang on wallet send
+const TX_CONFIRM_TIMEOUT_MS = 240000; // confirmation wait window
+
 const btnConnect = el("btnConnect");
 const btnFixRpc = el("btnFixRpc"); // optional (but recommended)
 const btnLogout = el("btnLogout");
@@ -30,6 +34,9 @@ let lastQuote = null;
 let activeRpc = null;
 let activateTab = () => {};
 
+/* -----------------------
+   UI status helpers
+------------------------ */
 function setStatus(text, onOff) {
   el("status").textContent = text;
   const dot = el("dot");
@@ -74,6 +81,30 @@ async function getChainIdWallet() {
 }
 
 /* -----------------------
+   Timeouts + wallet helpers
+------------------------ */
+function withTimeout(promise, ms, label = "Operation") {
+  let t;
+  const timeout = new Promise((_, rej) => {
+    t = setTimeout(() => rej(new Error(`${label} timed out`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+
+function isUserRejected(err) {
+  return err?.code === 4001;
+}
+
+function isPendingRequest(err) {
+  return err?.code === -32002;
+}
+
+async function walletReq(method, params = [], timeoutMs = 30000) {
+  const provider = await requireProvider();
+  return withTimeout(provider.request({ method, params }), timeoutMs, `wallet ${method}`);
+}
+
+/* -----------------------
    RPC auto-failover layer
 ------------------------ */
 function sleep(ms) {
@@ -110,8 +141,7 @@ function getCachedRpc() {
   try {
     const x = JSON.parse(localStorage.getItem("eryvanta_polygon_rpc") || "null");
     if (!x || !x.url || !x.ts) return null;
-    // re-check every 30 minutes
-    if (Date.now() - x.ts > 30 * 60 * 1000) return null;
+    if (Date.now() - x.ts > 30 * 60 * 1000) return null; // re-check every 30 minutes
     return x.url;
   } catch {
     return null;
@@ -129,7 +159,6 @@ async function pickHealthyPolygonRpc() {
     return activeRpc;
   }
 
-  // Pick first healthy (fast enough)
   for (const url of POLYGON_RPC_CANDIDATES) {
     try {
       await isHealthyPolygonRpc(url);
@@ -169,6 +198,31 @@ async function rpcRequestPolygon(method, params = []) {
 }
 
 /* -----------------------
+   MetaMask Polygon RPC auto-heal
+------------------------ */
+async function autoFixMetamaskPolygonRpc() {
+  const provider = await requireProvider();
+  const bestRpc = await pickHealthyPolygonRpc();
+
+  await withTimeout(
+    provider.request({
+      method: "wallet_addEthereumChain",
+      params: [
+        {
+          chainId: POLYGON_CHAIN_ID,
+          chainName: "Polygon Mainnet",
+          rpcUrls: [bestRpc, ...POLYGON_RPC_CANDIDATES.filter((x) => x !== bestRpc)],
+          nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
+          blockExplorerUrls: ["https://polygonscan.com/"],
+        },
+      ],
+    }),
+    20000,
+    "wallet_addEthereumChain"
+  );
+}
+
+/* -----------------------
    Network switching (Polygon)
 ------------------------ */
 async function switchToPolygon() {
@@ -187,13 +241,15 @@ async function switchToPolygon() {
     if (err && err.code === 4902) {
       await provider.request({
         method: "wallet_addEthereumChain",
-        params: [{
-          chainId: POLYGON_CHAIN_ID,
-          chainName: "Polygon Mainnet",
-          rpcUrls: [bestRpc, ...POLYGON_RPC_CANDIDATES.filter((x) => x !== bestRpc)],
-          nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
-          blockExplorerUrls: ["https://polygonscan.com/"],
-        }],
+        params: [
+          {
+            chainId: POLYGON_CHAIN_ID,
+            chainName: "Polygon Mainnet",
+            rpcUrls: [bestRpc, ...POLYGON_RPC_CANDIDATES.filter((x) => x !== bestRpc)],
+            nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
+            blockExplorerUrls: ["https://polygonscan.com/"],
+          },
+        ],
       });
     } else {
       throw err;
@@ -202,26 +258,88 @@ async function switchToPolygon() {
 }
 
 /* -----------------------
+   Build tx params via healthy RPC
+   (helps avoid MetaMask hanging due to bad RPC)
+------------------------ */
+async function buildNativeTransferTxParams({ from, to, valueWei }) {
+  await pickHealthyPolygonRpc();
+
+  // nonce (pending to avoid collisions)
+  const nonceHex = await rpcRequestPolygon("eth_getTransactionCount", [from, "pending"]);
+
+  // gas estimate (+20% margin)
+  const gasHex = await rpcRequestPolygon("eth_estimateGas", [
+    { from, to, value: toHex(valueWei) },
+  ]);
+  const gas = (BigInt(gasHex) * 120n) / 100n;
+
+  // fees: try EIP-1559 fields; fallback to legacy gasPrice
+  let feeFields = {};
+  try {
+    const prioHex = await rpcRequestPolygon("eth_maxPriorityFeePerGas", []);
+    const gasPriceHex = await rpcRequestPolygon("eth_gasPrice", []);
+    const prio = BigInt(prioHex);
+    const gasPrice = BigInt(gasPriceHex);
+
+    // robust: maxFee = 2*gasPrice + priority
+    const maxFee = gasPrice * 2n + prio;
+
+    feeFields = {
+      maxPriorityFeePerGas: toHex(prio),
+      maxFeePerGas: toHex(maxFee),
+    };
+  } catch {
+    const gasPriceHex = await rpcRequestPolygon("eth_gasPrice", []);
+    feeFields = { gasPrice: gasPriceHex };
+  }
+
+  return {
+    from,
+    to,
+    value: toHex(valueWei),
+    nonce: nonceHex,
+    gas: toHex(gas),
+    ...feeFields,
+  };
+}
+
+/* -----------------------
    Session + membership local storage
 ------------------------ */
 function getSession() {
-  try { return JSON.parse(localStorage.getItem("eryvanta_session") || "null"); }
-  catch { return null; }
+  try {
+    return JSON.parse(localStorage.getItem("eryvanta_session") || "null");
+  } catch {
+    return null;
+  }
 }
-function setSession(s) { localStorage.setItem("eryvanta_session", JSON.stringify(s)); }
-function clearSession() { localStorage.removeItem("eryvanta_session"); }
+function setSession(s) {
+  localStorage.setItem("eryvanta_session", JSON.stringify(s));
+}
+function clearSession() {
+  localStorage.removeItem("eryvanta_session");
+}
 
 function getMembership() {
-  try { return JSON.parse(localStorage.getItem("eryvanta_membership") || "null"); }
-  catch { return null; }
+  try {
+    return JSON.parse(localStorage.getItem("eryvanta_membership") || "null");
+  } catch {
+    return null;
+  }
 }
-function setMembership(m) { localStorage.setItem("eryvanta_membership", JSON.stringify(m)); }
+function setMembership(m) {
+  localStorage.setItem("eryvanta_membership", JSON.stringify(m));
+}
 
 function isSignedIn() {
   const s = getSession();
   return Boolean(
-    s && s.account && s.sig && s.message &&
-    account && s.account.toLowerCase() === account.toLowerCase()
+    s &&
+      s.account &&
+      s.sig &&
+      s.message &&
+      account &&
+      s.account.toLowerCase() === account.toLowerCase()
   );
 }
 
@@ -257,13 +375,12 @@ async function refreshWalletUI() {
 
   // balance (prefer wallet; fallback to our RPC)
   try {
-    const balHex = await window.ethereum.request({
-      method: "eth_getBalance",
-      params: [account, "latest"],
-    });
+    const balHex = await walletReq("eth_getBalance", [account, "latest"], 12000);
     el("bal").textContent = formatEthFromWeiHex(balHex);
   } catch {
-    setSessionMsg("RPC متامسک مشکل دارد. Fix Polygon RPC را بزن یا RPC شبکه Polygon را در MetaMask تغییر بده.");
+    setSessionMsg(
+      "RPC متامسک مشکل دارد. Fix Polygon RPC را بزن یا RPC شبکه Polygon را در MetaMask تغییر بده."
+    );
     try {
       const balHex = await rpcRequestPolygon("eth_getBalance", [account, "latest"]);
       el("bal").textContent = formatEthFromWeiHex(balHex);
@@ -309,12 +426,22 @@ async function refreshQuote() {
 /* -----------------------
    Tx verify helpers
 ------------------------ */
-async function waitForReceipt(txHash, timeoutMs = 120000) {
+async function waitForReceiptSmart(txHash, timeoutMs = TX_CONFIRM_TIMEOUT_MS) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const r = await rpcRequestPolygon("eth_getTransactionReceipt", [txHash]);
-    if (r) return r;
-    await sleep(2500);
+    // 1) wallet provider (sometimes faster)
+    try {
+      const r1 = await walletReq("eth_getTransactionReceipt", [txHash], 8000).catch(() => null);
+      if (r1) return r1;
+    } catch {}
+
+    // 2) our RPC failover
+    try {
+      const r2 = await rpcRequestPolygon("eth_getTransactionReceipt", [txHash]).catch(() => null);
+      if (r2) return r2;
+    } catch {}
+
+    await sleep(2000);
   }
   throw new Error("Timed out waiting for confirmation.");
 }
@@ -390,7 +517,15 @@ function setupTabs() {
 ------------------------ */
 async function connectWallet() {
   await requireProvider();
-  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  let accounts;
+  try {
+    accounts = await walletReq("eth_requestAccounts", [], 45000);
+  } catch (err) {
+    if (isPendingRequest(err)) {
+      throw new Error("یک درخواست متامسک باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
+    }
+    throw err;
+  }
   account = accounts?.[0] || null;
   if (!account) throw new Error("No account selected.");
   await refreshWalletUI();
@@ -398,11 +533,7 @@ async function connectWallet() {
 
 async function signIn() {
   const provider = await requireProvider();
-  const message = [
-    `Sign in to ${APP_NAME}`,
-    `Address: ${account}`,
-    `Time: ${nowIso()}`,
-  ].join("\n");
+  const message = [`Sign in to ${APP_NAME}`, `Address: ${account}`, `Time: ${nowIso()}`].join("\n");
 
   const sig = await provider.request({
     method: "personal_sign",
@@ -431,20 +562,7 @@ if (btnFixRpc) {
   btnFixRpc.onclick = async () => {
     try {
       setSessionMsg("");
-      const provider = await requireProvider();
-      const bestRpc = await pickHealthyPolygonRpc();
-
-      await provider.request({
-        method: "wallet_addEthereumChain",
-        params: [{
-          chainId: POLYGON_CHAIN_ID,
-          chainName: "Polygon Mainnet",
-          rpcUrls: [bestRpc, ...POLYGON_RPC_CANDIDATES.filter((x) => x !== bestRpc)],
-          nativeCurrency: { name: "POL", symbol: "POL", decimals: 18 },
-          blockExplorerUrls: ["https://polygonscan.com/"],
-        }],
-      });
-
+      await autoFixMetamaskPolygonRpc();
       setSessionMsg("در MetaMask درخواست آپدیت Polygon ارسال شد. Approve کن و دوباره تست کن.");
     } catch (e) {
       setSessionMsg(e?.message || String(e));
@@ -456,6 +574,7 @@ btnLogout.onclick = () => {
   clearSession();
   btnPay.disabled = true;
   el("shopMsg").textContent = "Signed out.";
+  setLoggedOutUI();
 };
 
 btnQuote.onclick = async () => {
@@ -463,14 +582,27 @@ btnQuote.onclick = async () => {
 };
 
 btnPay.onclick = async () => {
+  const prevDisabled = btnPay.disabled;
+  btnPay.disabled = true;
+
   try {
     el("shopMsg").textContent = "";
 
     if (!account) throw new Error("Connect wallet first.");
     if (!isSignedIn()) throw new Error("Sign in first (signature).");
 
+    // Ensure we have a healthy RPC and wallet is on Polygon
+    el("shopMsg").textContent = "Preparing network...";
     await pickHealthyPolygonRpc();
     await switchToPolygon();
+
+    // Heal MetaMask's Polygon RPC config automatically (prevents hanging)
+    try {
+      el("shopMsg").textContent = "Fixing Polygon RPC in wallet...";
+      await autoFixMetamaskPolygonRpc();
+    } catch (err) {
+      // If user rejects or it fails, still try to proceed
+    }
 
     // Ensure quote exists
     await refreshQuote();
@@ -478,14 +610,37 @@ btnPay.onclick = async () => {
 
     const expectedWei = FIXED_PAY_WEI;
 
-    el("shopMsg").textContent = "Opening MetaMask...";
-    const txHash = await window.ethereum.request({
-      method: "eth_sendTransaction",
-      params: [{ from: account, to: MERCHANT_ADDRESS, value: toHex(expectedWei) }],
+    // Build tx params using our healthy RPC (nonce/gas/fee)
+    el("shopMsg").textContent = "Building transaction...";
+    const txParams = await buildNativeTransferTxParams({
+      from: account,
+      to: MERCHANT_ADDRESS,
+      valueWei: expectedWei,
     });
 
+    // Send tx (timeout prevents UI lock)
+    el("shopMsg").textContent = "Opening MetaMask...";
+    let txHash;
+    try {
+      txHash = await withTimeout(
+        window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [txParams],
+        }),
+        TX_SEND_TIMEOUT_MS,
+        "eth_sendTransaction"
+      );
+    } catch (err) {
+      if (isUserRejected(err)) throw new Error("Transaction rejected in wallet.");
+      if (isPendingRequest(err))
+        throw new Error("یک درخواست متامسک باز است. MetaMask را باز کن و درخواست قبلی را کامل کن.");
+      throw err;
+    }
+
     el("shopMsg").textContent = "Waiting for confirmation...";
-    await waitForReceipt(txHash);
+    const receipt = await waitForReceiptSmart(txHash);
+
+    if (receipt?.status !== "0x1") throw new Error("Transaction failed.");
 
     setMembership({
       account,
@@ -500,6 +655,8 @@ btnPay.onclick = async () => {
     await refreshMembershipUI();
   } catch (e) {
     el("shopMsg").textContent = e?.message || String(e);
+  } finally {
+    btnPay.disabled = prevDisabled ? true : !isSignedIn();
   }
 };
 
@@ -512,7 +669,7 @@ btnPay.onclick = async () => {
   setStatus("Disconnected", "off");
   setSessionMsg("");
 
-  // Pre-pick a healthy RPC in background
+  // Pre-pick a healthy RPC in background (non-blocking)
   pickHealthyPolygonRpc().catch(() => {});
 
   if (!window.ethereum) {
@@ -535,4 +692,4 @@ btnPay.onclick = async () => {
   account = accs?.[0] || null;
   if (account) await refreshWalletUI();
   else setLoggedOutUI();
- })();
+})();
