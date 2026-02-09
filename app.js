@@ -1,31 +1,24 @@
 const el = (id) => document.getElementById(id);
 
 const APP_NAME = "EryVanta";
-
-// Polygon PoS chainId (137)
 const POLYGON_CHAIN_ID = "0x89";
-
-// Your receiving address
 const MERCHANT_ADDRESS = "0x03a6BC48ED8733Cc700AE49657931243f078a994";
-
-// Chainlink MATIC/USD feed on Polygon PoS
 const CHAINLINK_POL_USD_FEED = "0xAB594600376Ec9fD91F8e885dADF0CE036862dE0";
-
-// $1.00
 const PRICE_USD_CENTS = 100;
 
-// Function selectors
-const SEL_DECIMALS = "0x313ce567"; // decimals()
-const SEL_LATEST_ROUND_DATA = "0xfeaf968c"; // latestRoundData()
+const SEL_DECIMALS = "0x313ce567";
+const SEL_LATEST_ROUND_DATA = "0xfeaf968c";
 
 const btnConnect = el("btnConnect");
-const btnSign = el("btnSign");
 const btnLogout = el("btnLogout");
 const btnQuote = el("btnQuote");
 const btnPay = el("btnPay");
 
 let account = null;
 let lastQuote = null;
+
+// tab activator handle
+let activateTab = (name) => {};
 
 function setStatus(text, onOff) {
   el("status").textContent = text;
@@ -134,7 +127,6 @@ function setLoggedOutUI() {
   el("addr").textContent = "-";
   el("chain").textContent = "-";
   el("bal").textContent = "-";
-  btnSign.disabled = true;
   btnLogout.disabled = true;
   btnPay.disabled = true;
 }
@@ -167,6 +159,14 @@ function setMembership(data) {
   localStorage.setItem("eryvanta_membership", JSON.stringify(data));
 }
 
+function isSignedIn() {
+  const s = getSession();
+  return Boolean(
+    s && s.account && s.sig && s.message &&
+    account && s.account.toLowerCase() === account.toLowerCase()
+  );
+}
+
 async function refreshWalletUI() {
   if (!window.ethereum || !account) return;
 
@@ -181,7 +181,6 @@ async function refreshWalletUI() {
   el("bal").textContent = formatEthFromWeiHex(balanceHex);
 
   setStatus("Connected", "on");
-  btnSign.disabled = false;
   btnLogout.disabled = false;
 
   await refreshMembershipUI();
@@ -205,7 +204,7 @@ function computeWeiForUsdCents(usdCents, priceAnswer, priceDecimals) {
   const dec = 10n ** BigInt(priceDecimals);
   const numerator = BigInt(usdCents) * dec * (10n ** 18n);
   const denom = 100n * BigInt(priceAnswer);
-  return (numerator + denom - 1n) / denom; // round up
+  return (numerator + denom - 1n) / denom;
 }
 
 function formatPrice(answer, decimals) {
@@ -222,14 +221,6 @@ function fmtTimeAgo(unixSec) {
   if (minutes < 60) return `${minutes} minutes ago`;
   const hours = Math.floor(minutes / 60);
   return `${hours} hours ago`;
-}
-
-function isSignedIn() {
-  const s = getSession();
-  return Boolean(
-    s && s.account && s.sig && s.message &&
-    account && s.account.toLowerCase() === account.toLowerCase()
-  );
 }
 
 async function refreshQuote() {
@@ -264,26 +255,17 @@ async function refreshQuote() {
 async function waitForReceipt(txHash, timeoutMs = 120000) {
   const provider = await requireProvider();
   const start = Date.now();
-
   while (Date.now() - start < timeoutMs) {
-    const r = await provider.request({
-      method: "eth_getTransactionReceipt",
-      params: [txHash],
-    });
+    const r = await provider.request({ method: "eth_getTransactionReceipt", params: [txHash] });
     if (r) return r;
     await new Promise((res) => setTimeout(res, 2500));
   }
-
   throw new Error("Timed out waiting for transaction confirmation.");
 }
 
 async function verifyTx(txHash, expectedWeiStr) {
   const provider = await requireProvider();
-
-  const tx = await provider.request({
-    method: "eth_getTransactionByHash",
-    params: [txHash],
-  });
+  const tx = await provider.request({ method: "eth_getTransactionByHash", params: [txHash] });
   if (!tx) return { ok: false, reason: "Transaction not found." };
 
   const to = (tx.to || "").toLowerCase();
@@ -295,10 +277,7 @@ async function verifyTx(txHash, expectedWeiStr) {
   if (!account || from !== account.toLowerCase()) return { ok: false, reason: "Sender mismatch." };
   if (valueWei !== expectedWei) return { ok: false, reason: "Amount mismatch." };
 
-  const receipt = await provider.request({
-    method: "eth_getTransactionReceipt",
-    params: [txHash],
-  });
+  const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [txHash] });
   if (!receipt) return { ok: false, reason: "Receipt not found yet." };
   if (receipt.status !== "0x1") return { ok: false, reason: "Transaction failed." };
 
@@ -348,42 +327,50 @@ function setupTabs() {
     if (name === "account") refreshMembershipUI();
   }
 
+  activateTab = activate;
   tabs.forEach((t) => t.addEventListener("click", () => activate(t.dataset.tab)));
+}
+
+async function connectWallet() {
+  await requireProvider();
+  const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+  account = accounts?.[0] || null;
+  if (!account) throw new Error("No account selected.");
+  await refreshWalletUI();
+}
+
+async function signIn() {
+  if (!account) throw new Error("Connect wallet first.");
+  const provider = await requireProvider();
+  const message = [
+    `Sign in to ${APP_NAME}`,
+    `Address: ${account}`,
+    `Time: ${nowIso()}`,
+  ].join("\n");
+
+  const sig = await provider.request({
+    method: "personal_sign",
+    params: [message, account],
+  });
+
+  setSession({ account, sig, message });
 }
 
 btnConnect.onclick = async () => {
   try {
-    await requireProvider();
-    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-    account = accounts?.[0] || null;
-    if (!account) throw new Error("No account selected.");
-    await refreshWalletUI();
+    await connectWallet();
+
+    // One-click flow: connect + sign (if not already signed)
+    if (!isSignedIn()) {
+      await signIn();
+    }
+
+    // After sign-in: go to Shop and load quote
+    activateTab("shop");
+    await refreshQuote();
+    btnPay.disabled = false;
   } catch (e) {
     setStatus(e?.message || String(e), "off");
-  }
-};
-
-btnSign.onclick = async () => {
-  try {
-    if (!account) throw new Error("Connect wallet first.");
-    const provider = await requireProvider();
-
-    const message = [
-      `Sign in to ${APP_NAME}`,
-      `Address: ${account}`,
-      `Time: ${nowIso()}`,
-    ].join("\n");
-
-    const sig = await provider.request({
-      method: "personal_sign",
-      params: [message, account],
-    });
-
-    setSession({ account, sig, message });
-    btnPay.disabled = false;
-    await refreshMembershipUI();
-  } catch (e) {
-    el("shopMsg").textContent = e?.message || String(e);
   }
 };
 
@@ -403,7 +390,6 @@ btnPay.onclick = async () => {
     if (!isSignedIn()) throw new Error("Sign in first (signature).");
 
     await switchToPolygon();
-
     await refreshQuote();
     if (!lastQuote) throw new Error("Quote not available.");
 
@@ -413,13 +399,7 @@ btnPay.onclick = async () => {
     el("shopMsg").textContent = "Opening MetaMask...";
     const txHash = await provider.request({
       method: "eth_sendTransaction",
-      params: [
-        {
-          from: account,
-          to: MERCHANT_ADDRESS,
-          value: toHex(expectedWei),
-        },
-      ],
+      params: [{ from: account, to: MERCHANT_ADDRESS, value: toHex(expectedWei) }],
     });
 
     el("shopMsg").textContent = "Waiting for confirmation...";
@@ -464,9 +444,14 @@ btnPay.onclick = async () => {
     if (account) refreshWalletUI();
   });
 
-  // Do not trust localStorage for "connected" state
+  // Silent reconnect (no popups)
   const accs = await window.ethereum.request({ method: "eth_accounts" });
   account = accs?.[0] || null;
-  if (account) await refreshWalletUI();
-  else setLoggedOutUI();
+
+  if (account) {
+    await refreshWalletUI();
+    // do NOT auto-sign; wait for user click (security + MetaMask behavior)
+  } else {
+    setLoggedOutUI();
+  }
 })();
