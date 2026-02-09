@@ -2,20 +2,19 @@ const el = (id) => document.getElementById(id);
 
 const APP_NAME = "EryVanta";
 
-// Polygon PoS chainId
+// Polygon PoS chainId (137)
 const POLYGON_CHAIN_ID = "0x89";
 
-// Your receiving address (do not change)
+// Your receiving address
 const MERCHANT_ADDRESS = "0x03a6BC48ED8733Cc700AE49657931243f078a994";
 
-// Chainlink price feed on PolygonScan is labeled “Chainlink: MATIC/USD Price Feed”
-// We use it as USD per native POL on Polygon (same native currency context).
+// Chainlink MATIC/USD feed on Polygon PoS (commonly used for native token pricing)
 const CHAINLINK_POL_USD_FEED = "0xAB594600376Ec9fD91F8e885dADF0CE036862dE0";
 
 // $1.00
 const PRICE_USD_CENTS = 100;
 
-// Function selectors (keccak256 first 4 bytes)
+// Function selectors
 const SEL_DECIMALS = "0x313ce567"; // decimals()
 const SEL_LATEST_ROUND_DATA = "0xfeaf968c"; // latestRoundData()
 
@@ -26,6 +25,7 @@ const btnQuote = el("btnQuote");
 const btnPay = el("btnPay");
 
 let account = null;
+let lastQuote = null;
 
 function setStatus(text, onOff) {
   el("status").textContent = text;
@@ -40,17 +40,11 @@ function toHex(bigint) {
   return "0x" + bigint.toString(16);
 }
 
-function hexToBigInt(hex) {
-  return BigInt(hex);
-}
-
 function readWord(hex, wordIndex) {
-  // hex includes 0x
   const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
   const start = wordIndex * 64;
   const end = start + 64;
-  const word = clean.slice(start, end);
-  return "0x" + word;
+  return "0x" + clean.slice(start, end);
 }
 
 function uintFromWord(wordHex) {
@@ -112,8 +106,6 @@ async function switchToPolygon() {
       params: [{ chainId: POLYGON_CHAIN_ID }],
     });
   } catch (err) {
-    // If Polygon is not added in wallet, attempt to add it.
-    // Many wallets already have Polygon; this is a fallback.
     if (err && err.code === 4902) {
       await provider.request({
         method: "wallet_addEthereumChain",
@@ -131,26 +123,6 @@ async function switchToPolygon() {
       throw err;
     }
   }
-}
-
-async function refreshWalletUI() {
-  if (!window.ethereum || !account) return;
-
-  const chainId = await getChainId();
-  const balanceHex = await window.ethereum.request({
-    method: "eth_getBalance",
-    params: [account, "latest"],
-  });
-
-  el("addr").textContent = account;
-  el("chain").textContent = chainId;
-  el("bal").textContent = formatEthFromWeiHex(balanceHex);
-
-  setStatus("Connected", "on");
-  btnSign.disabled = false;
-  btnLogout.disabled = false;
-
-  await refreshMembershipUI();
 }
 
 function setLoggedOutUI() {
@@ -191,16 +163,30 @@ function setMembership(data) {
   localStorage.setItem("eryvanta_membership", JSON.stringify(data));
 }
 
-function clearMembership() {
-  localStorage.removeItem("eryvanta_membership");
+async function refreshWalletUI() {
+  if (!window.ethereum || !account) return;
+
+  const chainId = await getChainId();
+  const balanceHex = await window.ethereum.request({
+    method: "eth_getBalance",
+    params: [account, "latest"],
+  });
+
+  el("addr").textContent = account;
+  el("chain").textContent = chainId;
+  el("bal").textContent = formatEthFromWeiHex(balanceHex);
+
+  setStatus("Connected", "on");
+  btnSign.disabled = false;
+  btnLogout.disabled = false;
+
+  await refreshMembershipUI();
 }
 
 async function getChainlinkPriceUsdPerPol() {
-  // decimals()
   const decHex = await ethCall(CHAINLINK_POL_USD_FEED, SEL_DECIMALS);
   const decimals = Number(uintFromWord(readWord(decHex, 0)));
 
-  // latestRoundData()
   const roundHex = await ethCall(CHAINLINK_POL_USD_FEED, SEL_LATEST_ROUND_DATA);
   const answer = intFromWord(readWord(roundHex, 1));
   const updatedAt = Number(uintFromWord(readWord(roundHex, 3)));
@@ -212,15 +198,12 @@ async function getChainlinkPriceUsdPerPol() {
 }
 
 function computeWeiForUsdCents(usdCents, priceAnswer, priceDecimals) {
-  // priceAnswer = USD per POL * 10^decimals
-  // wei = (usdCents * 10^decimals * 1e18) / (100 * priceAnswer)
   const dec = 10n ** BigInt(priceDecimals);
   const numerator = BigInt(usdCents) * dec * (10n ** 18n);
   const denom = 100n * BigInt(priceAnswer);
 
-  // round up to avoid underpaying due to integer division
-  const wei = (numerator + denom - 1n) / denom;
-  return wei;
+  // round up
+  return (numerator + denom - 1n) / denom;
 }
 
 function formatPrice(answer, decimals) {
@@ -231,16 +214,21 @@ function formatPrice(answer, decimals) {
 }
 
 function fmtTimeAgo(unixSec) {
-  const ms = unixSec * 1000;
-  const diff = Date.now() - ms;
-  const minutes = Math.max(0, Math.floor(diff / 60000));
+  const diffMs = Date.now() - unixSec * 1000;
+  const minutes = Math.max(0, Math.floor(diffMs / 60000));
   if (minutes < 2) return "just now";
   if (minutes < 60) return `${minutes} minutes ago`;
   const hours = Math.floor(minutes / 60);
   return `${hours} hours ago`;
 }
 
-let lastQuote = null;
+function isSignedIn() {
+  const s = getSession();
+  return Boolean(
+    s && s.account && s.sig && s.message &&
+    account && s.account.toLowerCase() === account.toLowerCase()
+  );
+}
 
 async function refreshQuote() {
   el("shopMsg").textContent = "";
@@ -251,19 +239,17 @@ async function refreshQuote() {
 
     const { answer, decimals, updatedAt } = await getChainlinkPriceUsdPerPol();
 
-    // Basic staleness check (30 minutes)
+    // staleness check: 30 minutes
     const ageMin = Math.floor((Date.now() / 1000 - updatedAt) / 60);
     if (ageMin > 30) throw new Error("Price feed looks stale. Please try again.");
 
     const wei = computeWeiForUsdCents(PRICE_USD_CENTS, answer, decimals);
-
     lastQuote = { answer: answer.toString(), decimals, updatedAt, wei: wei.toString() };
 
     el("price").textContent = `${formatPrice(answer, decimals)} USD`;
     el("amountPol").textContent = formatPolFromWei(wei);
     el("updatedAt").textContent = fmtTimeAgo(updatedAt);
 
-    // Enable Pay only if signed in
     btnPay.disabled = !isSignedIn();
   } catch (e) {
     btnPay.disabled = true;
@@ -272,11 +258,6 @@ async function refreshQuote() {
     el("updatedAt").textContent = "-";
     el("shopMsg").textContent = e?.message || String(e);
   }
-}
-
-function isSignedIn() {
-  const s = getSession();
-  return Boolean(s && s.account && s.sig && s.message && account && s.account.toLowerCase() === account.toLowerCase());
 }
 
 async function waitForReceipt(txHash, timeoutMs = 120000) {
@@ -374,7 +355,6 @@ btnConnect.onclick = async () => {
     await requireProvider();
     const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
     account = accounts?.[0] || null;
-
     if (!account) throw new Error("No account selected.");
     await refreshWalletUI();
   } catch (e) {
@@ -406,7 +386,7 @@ btnSign.onclick = async () => {
   }
 };
 
-btnLogout.onclick = async () => {
+btnLogout.onclick = () => {
   clearSession();
   btnPay.disabled = true;
   el("shopMsg").textContent = "Signed out.";
@@ -423,12 +403,11 @@ btnPay.onclick = async () => {
 
     await switchToPolygon();
 
-    // Always refresh quote right before payment
+    // refresh quote right before payment
     await refreshQuote();
     if (!lastQuote) throw new Error("Quote not available.");
 
     const expectedWei = BigInt(lastQuote.wei);
-
     const provider = await requireProvider();
 
     el("shopMsg").textContent = "Opening MetaMask...";
@@ -446,7 +425,6 @@ btnPay.onclick = async () => {
     el("shopMsg").textContent = "Waiting for confirmation...";
     await waitForReceipt(txHash);
 
-    // Save membership record (local) + verify on-chain later
     setMembership({
       account,
       txHash,
@@ -466,32 +444,29 @@ btnPay.onclick = async () => {
   }
 };
 
-(function init() {
+(async function init() {
   setupTabs();
   el("receiver").textContent = MERCHANT_ADDRESS;
   setStatus("Disconnected", "off");
 
-  if (window.ethereum) {
-    window.ethereum.on("accountsChanged", (accs) => {
-      account = accs?.[0] || null;
-      if (!account) {
-        setLoggedOutUI();
-      } else {
-        refreshWalletUI();
-      }
-    });
-
-    window.ethereum.on("chainChanged", () => {
-      if (account) refreshWalletUI();
-    });
-  }
-
-  // Restore session if possible
-  const s = getSession();
-  if (s?.account) {
-    account = s.account;
-    refreshWalletUI().catch(() => setLoggedOutUI());
-  } else {
+  if (!window.ethereum) {
     setLoggedOutUI();
+    return;
   }
+
+  window.ethereum.on("accountsChanged", (accs) => {
+    account = accs?.[0] || null;
+    if (!account) setLoggedOutUI();
+    else refreshWalletUI();
+  });
+
+  window.ethereum.on("chainChanged", () => {
+    if (account) refreshWalletUI();
+  });
+
+  // IMPORTANT: do not trust localStorage for "connected" state
+  const accs = await window.ethereum.request({ method: "eth_accounts" });
+  account = accs?.[0] || null;
+  if (account) await refreshWalletUI();
+  else setLoggedOutUI();
 })();
